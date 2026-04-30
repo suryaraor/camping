@@ -508,11 +508,11 @@ function ShoppingView() {
   const toggleStatus = async (item) => {
     const newStatus = item.Status === 'Purchased' ? 'Pending' : 'Purchased';
     if (USE_MOCK_DATA) {
-      const idx = mockState.shopping.findIndex(i => i.ID === item.ID);
+      const idx = mockState.shopping.findIndex(i => i._row === item._row);
       if (idx !== -1) mockState.shopping[idx].Status = newStatus;
     }
-    await api.post({ action:'updateStatus', id:item.ID, status:newStatus });
-    setData(prev => prev.map(i => i.ID === item.ID ? {...i, Status:newStatus} : i));
+    await api.post({ action:'updateStatus', id:item.ID, row:item._row, status:newStatus });
+    setData(prev => prev.map(i => i._row === item._row ? {...i, Status:newStatus} : i));
   };
 
   const handleAdd = async () => {
