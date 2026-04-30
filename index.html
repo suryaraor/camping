@@ -1150,6 +1150,171 @@ function VolunteersView() {
   );
 }
 
+// ─── MY VIEW ──────────────────────────────────────────────────────────────────
+function MyView({ myName, saveName }) {
+  const { data: volunteers } = useData('getVolunteers');
+  const { data: shopping, setData: setShopping } = useData('getShopping');
+  const { data: schedule }  = useData('getSchedule');
+  const { data: expenses }  = useData('getExpenses');
+  const [pendingRow, setPendingRow] = React.useState(null);
+
+  const myItems    = React.useMemo(() => (shopping||[]).filter(i => i.Volunteer === myName), [shopping, myName]);
+  const mySchedule = React.useMemo(() => (schedule||[]).filter(i => i['Assigned Volunteer'] === myName || i['Assigned Volunteer'] === 'All'), [schedule, myName]);
+  const myExpenses = React.useMemo(() => (expenses||[]).filter(e => e.Volunteer === myName), [expenses, myName]);
+  const myTotal    = myExpenses.reduce((s, e) => s + (parseFloat(e.Amount)||0), 0);
+  const myDone     = myItems.filter(i => i.Status === 'Purchased').length;
+
+  const toggleStatus = async (item) => {
+    if (pendingRow !== null) return;
+    setPendingRow(item._row);
+    try {
+      const newStatus = item.Status === 'Purchased' ? 'Pending' : 'Purchased';
+      if (USE_MOCK_DATA) {
+        const idx = mockState.shopping.findIndex(i => i._row === item._row);
+        if (idx !== -1) mockState.shopping[idx].Status = newStatus;
+      }
+      await api.post({ action:'updateStatus', id:item.ID, row:item._row, status:newStatus });
+      setShopping(prev => prev.map(i => i._row === item._row ? {...i, Status:newStatus} : i));
+    } finally {
+      setPendingRow(null);
+    }
+  };
+
+  if (!myName) {
+    return (
+      <div>
+        <div className="empty-state" style={{paddingTop:50}}>
+          <div className="emoji">👤</div>
+          <p style={{fontWeight:700,fontSize:'1.1rem',marginBottom:6}}>Who are you?</p>
+          <p style={{marginBottom:24,fontSize:'.88rem'}}>Pick your name to see only your tasks.</p>
+          <div style={{display:'flex',flexDirection:'column',gap:10,maxWidth:300,margin:'0 auto'}}>
+            {(volunteers||[]).map(v => (
+              <button key={v.Name} className="btn btn-outline"
+                style={{textAlign:'left',padding:'12px 16px',display:'flex',alignItems:'center',gap:12}}
+                onClick={() => saveName(v.Name)}>
+                <div style={{width:36,height:36,borderRadius:10,background:'linear-gradient(135deg,var(--green2),var(--green3))',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,flexShrink:0}}>
+                  {v.Name.charAt(0)}
+                </div>
+                <div>
+                  <div style={{fontWeight:700}}>{v.Name}</div>
+                  <div style={{fontSize:'.75rem',color:'var(--muted)'}}>{v.Family} · {v['Assigned Store']}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Identity bar */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20,padding:'12px 16px',background:'var(--card)',borderRadius:'var(--radius)',boxShadow:'var(--shadow)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div style={{width:42,height:42,borderRadius:12,background:'linear-gradient(135deg,var(--green2),var(--green3))',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,fontSize:'1.15rem',flexShrink:0}}>
+            {myName.charAt(0)}
+          </div>
+          <div>
+            <div style={{fontWeight:700}}>Hi, {myName}! 👋</div>
+            <div style={{fontSize:'.75rem',color:'var(--muted)'}}>Your personal task view</div>
+          </div>
+        </div>
+        <button className="btn btn-outline btn-sm" onClick={() => saveName('')}>Change</button>
+      </div>
+
+      {/* Stats */}
+      <div className="stats-grid" style={{marginBottom:20}}>
+        <div className="stat-card">
+          <div className="stat-value">{myDone}/{myItems.length}</div>
+          <div className="stat-label">Items Bought</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{mySchedule.filter(i => i['Assigned Volunteer'] !== 'All').length}</div>
+          <div className="stat-label">My Duties</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">${myTotal.toFixed(2)}</div>
+          <div className="stat-label">I've Spent</div>
+        </div>
+      </div>
+
+      {/* My Shopping */}
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">🛒 My Shopping</div>
+          <span style={{fontSize:'.78rem',color: myDone===myItems.length && myItems.length>0 ? 'var(--green)' : 'var(--muted)',fontWeight:600}}>
+            {myItems.length === 0 ? 'none assigned' : myDone===myItems.length ? '✓ All done!' : `${myDone} of ${myItems.length} done`}
+          </span>
+        </div>
+        {myItems.length === 0 ? (
+          <div style={{color:'var(--muted)',fontSize:'.85rem',padding:'4px 0 8px'}}>No items assigned to you.</div>
+        ) : (
+          <div className="item-tiles-grid">
+            {myItems.map(item => {
+              const isLoading = pendingRow === item._row;
+              return (
+                <button key={item._row}
+                  className={`item-tile${item.Status==='Purchased' ? ' item-tile--done' : ''}${isLoading ? ' item-tile--loading' : ''}`}
+                  onClick={() => toggleStatus(item)}
+                  disabled={pendingRow !== null}>
+                  {isLoading
+                    ? <div className="item-tile-spinner" />
+                    : item.Status==='Purchased' && <div className="item-tile-check">✓</div>
+                  }
+                  <div className="item-tile-name">{item.Item}</div>
+                  <div className="item-tile-qty">{item.Quantity}</div>
+                  <div className="item-tile-meal">{MEAL_ICONS[item.Meal] || '🍽️'} {item.Meal}</div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* My Schedule */}
+      <div className="card">
+        <div className="card-header"><div className="card-title">📅 My Schedule</div></div>
+        {mySchedule.length === 0 ? (
+          <div style={{color:'var(--muted)',fontSize:'.85rem',padding:'4px 0 8px'}}>No schedule items assigned to you.</div>
+        ) : (
+          mySchedule.map((item, i) => (
+            <div key={i} style={{display:'flex',alignItems:'flex-start',gap:10,padding:'10px 0',borderBottom: i < mySchedule.length-1 ? '1px solid var(--border)' : 'none'}}>
+              <div className="meal-icon" style={{background: MEAL_COLORS[item.Meal] || '#f3f4f6', flexShrink:0}}>
+                {MEAL_ICONS[item.Meal] || '📌'}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:'.75rem',color:'var(--muted)',fontWeight:600}}>Day {item.Day} · {item.Meal}{item['Assigned Volunteer']==='All' ? ' · 👥 Everyone' : ''}</div>
+                <div style={{fontWeight:700,fontSize:'.88rem',marginTop:1}}>{item.Item}</div>
+                {item.Details && <div style={{fontSize:'.76rem',color:'var(--muted)',marginTop:2}}>{item.Details}</div>}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* My Expenses */}
+      {myExpenses.length > 0 && (
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">💸 My Expenses</div>
+            <span style={{fontWeight:800,color:'var(--green)'}}>${myTotal.toFixed(2)}</span>
+          </div>
+          {myExpenses.map((e, i) => (
+            <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom: i < myExpenses.length-1 ? '1px solid var(--border)' : 'none'}}>
+              <div>
+                <div style={{fontWeight:600,fontSize:'.85rem'}}>{e.Item}</div>
+                <div style={{fontSize:'.73rem',color:'var(--muted)'}}>{e.Store} · {e.Date}</div>
+              </div>
+              <div style={{fontWeight:700,color:'var(--green)'}}>${Number(e.Amount).toFixed(2)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── SYNC BUTTON ──────────────────────────────────────────────────────────────
 function SyncButton() {
   const { isOnline, isSyncing, lastSyncAt, pendingCount, sync } = React.useContext(SyncContext);
@@ -1185,6 +1350,7 @@ function SyncButton() {
 
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 const TABS = [
+  { id:'myview',     label:'👤 My View'   },
   { id:'schedule',   label:'📅 Schedule'  },
   { id:'shopping',   label:'🛒 Shopping'  },
   { id:'expenses',   label:'💰 Expenses'  },
@@ -1193,8 +1359,20 @@ const TABS = [
 ];
 
 function App() {
-  const [tab, setTab] = React.useState('schedule');
+  const [tab, setTab]       = React.useState('myview');
+  const [myName, setMyName] = React.useState(() => localStorage.getItem('camping_my_name') || '');
   const { isOnline, pendingCount } = React.useContext(SyncContext);
+
+  const saveName = (name) => {
+    setMyName(name);
+    localStorage.setItem('camping_my_name', name);
+  };
+
+  const tabLabel = (t) => {
+    if (t.id === 'myview') return myName ? `👤 ${myName.split(' ')[0]}` : '👤 My View';
+    return t.label;
+  };
+
   return (
     <div>
       <div className="app-header">
@@ -1207,7 +1385,7 @@ function App() {
             <button key={t.id}
               className={`nav-tab ${tab===t.id?'active':''}`}
               onClick={() => setTab(t.id)}>
-              {t.label}
+              {tabLabel(t)}
             </button>
           ))}
         </div>
@@ -1230,10 +1408,11 @@ function App() {
             </div>
           </div>
         )}
-        {tab === 'schedule'   && <ScheduleView />}
-        {tab === 'shopping'   && <ShoppingView />}
-        {tab === 'expenses'   && <ExpensesView />}
-        {tab === 'signups'    && <SignupsView />}
+        {tab === 'myview'    && <MyView myName={myName} saveName={saveName} />}
+        {tab === 'schedule'  && <ScheduleView />}
+        {tab === 'shopping'  && <ShoppingView />}
+        {tab === 'expenses'  && <ExpensesView />}
+        {tab === 'signups'   && <SignupsView />}
         {tab === 'volunteers' && <VolunteersView />}
       </div>
     </div>
