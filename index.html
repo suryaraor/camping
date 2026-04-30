@@ -834,7 +834,7 @@ function SignupsView() {
         <div style={{opacity:.85,marginTop:6,fontSize:'.9rem'}}>Total Campers Registered 🏕️</div>
       </div>
 
-      {(data||[]).map((p,i) => (
+      {[...(data||[])].sort((a,b) => (parseInt(b.Members)||0) - (parseInt(a.Members)||0)).map((p,i) => (
         <div key={i} className="signup-card">
           <div className="signup-avatar">{(p.Name||'?').charAt(0).toUpperCase()}</div>
           <div style={{flex:1}}>
