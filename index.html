@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🏕️ Camping Planner</title>
+
+  <!-- React + Babel -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+
+  <style>
+    /* ── Reset & base ────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --green:   #2d6a4f;
+      --green2:  #40916c;
+      --green3:  #74c69d;
+      --amber:   #f4a261;
+      --red:     #e76f51;
+      --sky:     #219ebc;
+      --bg:      #f0f4f1;
+      --card:    #ffffff;
+      --text:    #1b2826;
+      --muted:   #6b7c74;
+      --border:  #d8e4dc;
+      --radius:  12px;
+      --shadow:  0 2px 12px rgba(0,0,0,.08);
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────── */
+    .app-header {
+      background: var(--green);
+      color: #fff;
+      padding: 16px 20px 0;
+      position: sticky; top: 0; z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    }
+    .app-header h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 14px; }
+    .nav-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+    .nav-tabs::-webkit-scrollbar { display: none; }
+    .nav-tab {
+      padding: 8px 16px;
+      border-radius: 8px 8px 0 0;
+      background: transparent;
+      color: rgba(255,255,255,.75);
+      border: none; cursor: pointer;
+      font-size: .875rem; font-weight: 500;
+      white-space: nowrap; transition: all .15s;
+    }
+    .nav-tab.active { background: var(--bg); color: var(--green); font-weight: 700; }
+    .nav-tab:hover:not(.active) { background: rgba(255,255,255,.12); color: #fff; }
+
+    /* ── Layout ──────────────────────────────────────────────────── */
+    .page { padding: 20px; max-width: 900px; margin: 0 auto; }
+
+    /* ── Cards ───────────────────────────────────────────────────── */
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .card-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px;
+    }
+    .card-title { font-size: 1rem; font-weight: 700; color: var(--text); }
+
+    /* ── Summary stats ───────────────────────────────────────────── */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .stat-card {
+      background: var(--card); border-radius: var(--radius);
+      padding: 16px; text-align: center; box-shadow: var(--shadow);
+    }
+    .stat-value { font-size: 1.8rem; font-weight: 800; color: var(--green); }
+    .stat-label { font-size: .78rem; color: var(--muted); margin-top: 4px; }
+
+    /* ── Day cards ───────────────────────────────────────────────── */
+    .day-card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; margin-bottom: 16px; }
+    .day-label { background: var(--green); color: #fff; padding: 10px 16px; font-weight: 700; font-size: .9rem; }
+    .meal-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 16px; border-bottom: 1px solid var(--border); transition: background .1s;
+    }
+    .meal-row:last-child { border-bottom: none; }
+    .meal-row:hover { background: #f7faf8; }
+    .meal-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
+    .meal-info { flex: 1; }
+    .meal-name { font-weight: 600; font-size: .9rem; }
+    .meal-detail { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+    .meal-badge { font-size: .7rem; padding: 3px 8px; border-radius: 20px; font-weight: 600; white-space: nowrap; }
+
+    /* ── Shopping ────────────────────────────────────────────────── */
+    .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .filter-btn {
+      padding: 6px 14px; border-radius: 20px; border: 1.5px solid var(--border);
+      background: var(--card); font-size: .8rem; cursor: pointer; font-weight: 500; transition: all .15s;
+    }
+    .filter-btn.active { background: var(--green); color: #fff; border-color: var(--green); }
+    .shopping-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px; background: var(--card); border-radius: var(--radius);
+      margin-bottom: 8px; box-shadow: var(--shadow); transition: opacity .2s;
+    }
+    .shopping-item.purchased { opacity: .55; }
+    .check-btn {
+      width: 24px; height: 24px; border-radius: 6px; border: 2px solid var(--border);
+      background: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: all .15s;
+    }
+    .check-btn.checked { background: var(--green3); border-color: var(--green); }
+    .item-info { flex: 1; }
+    .item-name { font-weight: 600; font-size: .9rem; }
+    .item-meta { font-size: .75rem; color: var(--muted); margin-top: 3px; }
+    .item-store { font-size: .75rem; font-weight: 600; color: var(--sky); }
+
+    /* ── Expenses ────────────────────────────────────────────────── */
+    .expense-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    .expense-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid var(--border); color: var(--muted); font-weight: 600; }
+    .expense-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    .expense-table tr:last-child td { border-bottom: none; }
+    .expense-table tr:hover td { background: #f7faf8; }
+    .store-tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: .72rem; font-weight: 700; background: #e0f2fe; color: #0369a1; }
+    .progress-bar-wrap { background: var(--border); border-radius: 99px; height: 8px; overflow: hidden; }
+    .progress-bar { height: 100%; background: var(--green); border-radius: 99px; transition: width .4s; }
+
+    /* ── Family split ────────────────────────────────────────────── */
+    .family-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .family-row:last-child { border-bottom: none; }
+    .family-avatar { width: 40px; height: 40px; border-radius: 10px; background: var(--green3); display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+    .family-cost { font-size: 1rem; font-weight: 800; color: var(--green); margin-left: auto; }
+
+    /* ── Signups ─────────────────────────────────────────────────── */
+    .signup-card {
+      display: flex; align-items: center; gap: 12px; background: var(--card);
+      border-radius: var(--radius); padding: 12px 16px; box-shadow: var(--shadow); margin-bottom: 10px;
+    }
+    .signup-avatar {
+      width: 42px; height: 42px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--green2), var(--green3));
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 700; font-size: 1rem; flex-shrink: 0;
+    }
+
+    /* ── Form ────────────────────────────────────────────────────── */
+    .form-group { margin-bottom: 14px; }
+    .form-label { font-size: .8rem; font-weight: 600; color: var(--muted); margin-bottom: 6px; display: block; }
+    .form-input, .form-select {
+      width: 100%; padding: 10px 12px; border: 1.5px solid var(--border);
+      border-radius: 8px; font-size: .9rem; background: var(--card); transition: border-color .15s; outline: none;
+    }
+    .form-input:focus, .form-select:focus { border-color: var(--green2); }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* ── Buttons ─────────────────────────────────────────────────── */
+    .btn { padding: 10px 20px; border-radius: 8px; border: none; font-size: .875rem; font-weight: 600; cursor: pointer; transition: all .15s; }
+    .btn-primary { background: var(--green); color: #fff; }
+    .btn-primary:hover { background: var(--green2); }
+    .btn-outline { background: none; border: 1.5px solid var(--border); color: var(--text); }
+    .btn-outline:hover { border-color: var(--green2); color: var(--green); }
+    .btn-sm { padding: 6px 12px; font-size: .78rem; }
+
+    /* ── Modal ───────────────────────────────────────────────────── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.45);
+      display: flex; align-items: flex-end; justify-content: center; z-index: 200;
+    }
+    @media (min-width: 640px) { .modal-overlay { align-items: center; } }
+    .modal {
+      background: var(--card); border-radius: 20px 20px 0 0;
+      padding: 24px 20px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto;
+    }
+    @media (min-width: 640px) { .modal { border-radius: var(--radius); } }
+    .modal-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 20px; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+    /* ── Misc ────────────────────────────────────────────────────── */
+    .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .section-title { font-size: 1.1rem; font-weight: 700; }
+    .badge-green { background: #dcfce7; color: #16a34a; }
+    .badge-amber { background: #fef3c7; color: #d97706; }
+    .badge-gray  { background: #f3f4f6; color: #6b7280; }
+    .text-muted  { color: var(--muted); font-size: .85rem; }
+    .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
+    .empty-state .emoji { font-size: 2.5rem; margin-bottom: 10px; }
+    .config-banner {
+      background: #fef3c7; border: 1px solid #fbbf24; border-radius: var(--radius);
+      padding: 12px 16px; margin-bottom: 20px; font-size: .85rem; display: flex; gap: 10px; align-items: flex-start;
+    }
+    .config-banner code { background: rgba(0,0,0,.08); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: .82rem; }
+    @media (max-width: 480px) { .form-row { grid-template-columns: 1fr; } .stats-grid { grid-template-columns: 1fr 1fr; } }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+// ─── CONFIG ──────────────────────────────────────────────────────────────────
+// After deploying apps-script/Code.gs, paste your Web App URL here
+const APPS_SCRIPT_URL = 'YOUR_APPS_SCRIPT_URL_HERE';
+// Set to false once your Apps Script is deployed and URL is set above
+const USE_MOCK_DATA = true;
+
+// ─── MOCK DATA ────────────────────────────────────────────────────────────────
+const MOCK = {
+  schedule: [
+    { _row:2,  Day:1, Meal:'Breakfast', Item:'Pancakes & Bacon',      Details:'Cast iron skillet',              'Assigned Volunteer':'Priya',  Status:'Planned' },
+    { _row:3,  Day:1, Meal:'Lunch',     Item:'Sandwiches & Chips',    Details:'Make-your-own station',           'Assigned Volunteer':'Ravi',   Status:'Planned' },
+    { _row:4,  Day:1, Meal:'Dinner',    Item:'BBQ Burgers & Dogs',    Details:'Grill by the fire pit',          'Assigned Volunteer':'Surya',  Status:'Planned' },
+    { _row:5,  Day:1, Meal:'Activity',  Item:'Nature Hike',           Details:'3-mile loop, meet at 10am',      'Assigned Volunteer':'Anand',  Status:'Planned' },
+    { _row:6,  Day:2, Meal:'Breakfast', Item:'Eggs & Toast',          Details:'Full camp breakfast',            'Assigned Volunteer':'Priya',  Status:'Planned' },
+    { _row:7,  Day:2, Meal:'Lunch',     Item:'Taco Bar',              Details:'Carne asada + veggie option',    'Assigned Volunteer':'Meera',  Status:'Planned' },
+    { _row:8,  Day:2, Meal:'Dinner',    Item:'Campfire Stew',         Details:'Big pot — veg & beef',           'Assigned Volunteer':'Surya',  Status:'Planned' },
+    { _row:9,  Day:2, Meal:'Activity',  Item:'Kayaking',              Details:'Rent from park office at 2pm',   'Assigned Volunteer':'Ravi',   Status:'Planned' },
+    { _row:10, Day:3, Meal:'Breakfast', Item:'Cereal & Fruit',        Details:'Easy pack-up morning',           'Assigned Volunteer':'All',    Status:'Planned' },
+    { _row:11, Day:3, Meal:'Activity',  Item:'Depart & Clean Up',     Details:'Check-out by noon',              'Assigned Volunteer':'All',    Status:'Planned' },
+  ],
+  shopping: [
+    { _row:2,  ID:'s1',  Meal:'Breakfast', Category:'Groceries', Item:'Eggs',          Quantity:'3 dozen', Store:'Costco',      Volunteer:'Priya',  Status:'Purchased', Cost:8.99  },
+    { _row:3,  ID:'s2',  Meal:'Breakfast', Category:'Groceries', Item:'Pancake Mix',   Quantity:'2 bags',  Store:'Trader Joes', Volunteer:'Priya',  Status:'Purchased', Cost:6.50  },
+    { _row:4,  ID:'s3',  Meal:'Breakfast', Category:'Groceries', Item:'Bacon',         Quantity:'3 packs', Store:'Costco',      Volunteer:'Ravi',   Status:'Pending',   Cost:0     },
+    { _row:5,  ID:'s4',  Meal:'Lunch',     Category:'Groceries', Item:'Bread Loaves',  Quantity:'4',       Store:'Safeway',     Volunteer:'Ravi',   Status:'Pending',   Cost:0     },
+    { _row:6,  ID:'s5',  Meal:'Dinner',    Category:'Groceries', Item:'Burger Patties',Quantity:'40',      Store:'Costco',      Volunteer:'Surya',  Status:'Pending',   Cost:0     },
+    { _row:7,  ID:'s6',  Meal:'Dinner',    Category:'Groceries', Item:'Hot Dogs',      Quantity:'2 packs', Store:'Costco',      Volunteer:'Surya',  Status:'Pending',   Cost:0     },
+    { _row:8,  ID:'s7',  Meal:'Supplies',  Category:'Supplies',  Item:'Paper Plates',  Quantity:'100 ct',  Store:'Target',      Volunteer:'Meera',  Status:'Pending',   Cost:0     },
+    { _row:9,  ID:'s8',  Meal:'Supplies',  Category:'Supplies',  Item:'Charcoal Bags', Quantity:'3',       Store:'Target',      Volunteer:'Meera',  Status:'Purchased', Cost:24.00 },
+    { _row:10, ID:'s9',  Meal:'Dinner',    Category:'Groceries', Item:'Burger Buns',   Quantity:'3 packs', Store:'Safeway',     Volunteer:'Anand',  Status:'Pending',   Cost:0     },
+    { _row:11, ID:'s10', Meal:'Lunch',     Category:'Groceries', Item:'Deli Meats',    Quantity:'3 lbs',   Store:'Safeway',     Volunteer:'Anand',  Status:'Pending',   Cost:0     },
+  ],
+  volunteers: [
+    { _row:2, Name:'Priya', Family:'Sharma', 'Assigned Store':'Costco',      Phone:'555-0101' },
+    { _row:3, Name:'Ravi',  Family:'Sharma', 'Assigned Store':'Trader Joes', Phone:'555-0102' },
+    { _row:4, Name:'Surya', Family:'Rao',    'Assigned Store':'Costco',      Phone:'555-0103' },
+    { _row:5, Name:'Meera', Family:'Patel',  'Assigned Store':'Target',      Phone:'555-0104' },
+    { _row:6, Name:'Anand', Family:'Patel',  'Assigned Store':'Safeway',     Phone:'555-0105' },
+  ],
+  families: [
+    { _row:2, 'Family Name':'Sharma', Members:6, Contact:'Priya', Email:'priya@example.com' },
+    { _row:3, 'Family Name':'Rao',    Members:4, Contact:'Surya', Email:'surya@example.com' },
+    { _row:4, 'Family Name':'Patel',  Members:5, Contact:'Meera', Email:'meera@example.com' },
+    { _row:5, 'Family Name':'Kumar',  Members:3, Contact:'Amit',  Email:'amit@example.com'  },
+  ],
+  expenses: [
+    { _row:2, Volunteer:'Priya', Store:'Costco',      Item:'Eggs, Pancake Mix', Amount:15.49, Date:'2024-07-10' },
+    { _row:3, Volunteer:'Meera', Store:'Target',      Item:'Charcoal Bags',     Amount:24.00, Date:'2024-07-10' },
+    { _row:4, Volunteer:'Surya', Store:'Costco',      Item:'Water Cases x4',    Amount:18.00, Date:'2024-07-11' },
+    { _row:5, Volunteer:'Ravi',  Store:'Trader Joes', Item:'Snacks & Chips',    Amount:32.50, Date:'2024-07-11' },
+  ],
+  signups: [
+    { _row:2, Name:'Priya Sharma', Family:'Sharma', Members:6, Email:'priya@example.com', 'Dietary Notes':'None',           'Signed Up At':'2024-06-20' },
+    { _row:3, Name:'Surya Rao',    Family:'Rao',    Members:4, Email:'surya@example.com', 'Dietary Notes':'Vegetarian x2',  'Signed Up At':'2024-06-21' },
+    { _row:4, Name:'Meera Patel',  Family:'Patel',  Members:5, Email:'meera@example.com', 'Dietary Notes':'Nut allergy x1', 'Signed Up At':'2024-06-22' },
+    { _row:5, Name:'Amit Kumar',   Family:'Kumar',  Members:3, Email:'amit@example.com',  'Dietary Notes':'None',           'Signed Up At':'2024-06-23' },
+  ],
+};
+
+// ─── LOCAL MOCK STATE (so toggles/adds work in demo) ─────────────────────────
+const mockState = { ...JSON.parse(JSON.stringify(MOCK)) };
+
+function computeSummary(data) {
+  const totalCost    = data.expenses.reduce((s,e) => s + (parseFloat(e.Amount)||0), 0);
+  const totalPeople  = data.signups.reduce((s,p)  => s + (parseInt(p.Members)||0),  0);
+  const costPerPerson = totalPeople > 0 ? totalCost / totalPeople : 0;
+  const byStore = {};
+  data.expenses.forEach(e => { byStore[e.Store] = (byStore[e.Store]||0) + (parseFloat(e.Amount)||0); });
+  const familyCosts  = data.families.map(f => ({
+    family:  f['Family Name'], members: parseInt(f.Members)||0,
+    cost:    Math.round((parseInt(f.Members)||0) * costPerPerson * 100) / 100,
+  }));
+  const totalItems    = data.shopping.length;
+  const purchasedItems = data.shopping.filter(i => i.Status === 'Purchased').length;
+  return {
+    totalCost:       Math.round(totalCost*100)/100,
+    totalPeople,
+    costPerPerson:   Math.round(costPerPerson*100)/100,
+    byStore,
+    familyCosts,
+    shoppingProgress: { total: totalItems, purchased: purchasedItems },
+  };
+}
+
+// ─── API CLIENT ───────────────────────────────────────────────────────────────
+const api = {
+  async get(action) {
+    if (USE_MOCK_DATA) {
+      await new Promise(r => setTimeout(r, 280));
+      const map = { getSchedule:'schedule', getShopping:'shopping', getVolunteers:'volunteers',
+                    getFamilies:'families', getExpenses:'expenses', getSignups:'signups' };
+      if (action === 'getSummary') return computeSummary(mockState);
+      return JSON.parse(JSON.stringify(mockState[map[action]] || []));
+    }
+    const res  = await fetch(`${APPS_SCRIPT_URL}?action=${action}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+    return json.data;
+  },
+  async post(body) {
+    if (USE_MOCK_DATA) {
+      await new Promise(r => setTimeout(r, 180));
+      return { ok: true };
+    }
+    const res  = await fetch(APPS_SCRIPT_URL, { method:'POST', body: JSON.stringify(body) });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+    return json.data;
+  },
+};
+
+// ─── CONSTANTS ────────────────────────────────────────────────────────────────
+const MEAL_ICONS   = { Breakfast:'🌅', Lunch:'☀️', Dinner:'🔥', Activity:'🎒', Supplies:'🧰' };
+const MEAL_COLORS  = { Breakfast:'#fef9c3', Lunch:'#dcfce7', Dinner:'#fee2e2', Activity:'#dbeafe', Supplies:'#f3e8ff' };
+
+// ─── HOOKS ────────────────────────────────────────────────────────────────────
+function useData(action) {
+  const [data, setData]       = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError]     = React.useState(null);
+  const load = React.useCallback(async () => {
+    setLoading(true); setError(null);
+    try   { setData(await api.get(action)); }
+    catch (e) { setError(e.message); }
+    finally   { setLoading(false); }
+  }, [action]);
+  React.useEffect(() => { load(); }, [load]);
+  return { data, loading, error, reload: load, setData };
+}
+
+// ─── MODAL ────────────────────────────────────────────────────────────────────
+function Modal({ title, onClose, children }) {
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <div className="modal-title">{title}</div>
+          <button onClick={onClose} style={{background:'none',border:'none',fontSize:'1.5rem',cursor:'pointer',color:'#9ca3af',lineHeight:1}}>×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─── SCHEDULE ─────────────────────────────────────────────────────────────────
+function ScheduleView() {
+  const { data, loading, reload } = useData('getSchedule');
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [form, setForm] = React.useState({ Day:1, Meal:'Breakfast', Item:'', Details:'', 'Assigned Volunteer':'', Status:'Planned' });
+
+  const grouped = React.useMemo(() => {
+    if (!data) return {};
+    return data.reduce((acc, row) => {
+      const d = `Day ${row.Day}`;
+      if (!acc[d]) acc[d] = [];
+      acc[d].push(row);
+      return acc;
+    }, {});
+  }, [data]);
+
+  const handleAdd = async () => {
+    if (!form.Item.trim()) return;
+    if (USE_MOCK_DATA) {
+      mockState.schedule.push({ ...form, _row: mockState.schedule.length + 2 });
+    }
+    await api.post({ action:'addScheduleItem', data: form });
+    setShowAdd(false);
+    reload();
+  };
+
+  if (loading) return <div className="empty-state"><div className="emoji">⏳</div><p>Loading schedule…</p></div>;
+
+  return (
+    <div>
+      <div className="section-header">
+        <div className="section-title">📅 Trip Schedule</div>
+        <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(true)}>+ Add Item</button>
+      </div>
+
+      {Object.entries(grouped).map(([day, items]) => (
+        <div key={day} className="day-card">
+          <div className="day-label">{day}</div>
+          {items.map((item, i) => (
+            <div key={i} className="meal-row">
+              <div className="meal-icon" style={{background: MEAL_COLORS[item.Meal] || '#f3f4f6'}}>
+                {MEAL_ICONS[item.Meal] || '📌'}
+              </div>
+              <div className="meal-info">
+                <div className="meal-name">{item.Item}</div>
+                {item.Details && <div className="meal-detail">{item.Details}</div>}
+                {item['Assigned Volunteer'] && (
+                  <div style={{fontSize:'.72rem',color:'#6b7280',marginTop:3}}>👤 {item['Assigned Volunteer']}</div>
+                )}
+              </div>
+              <span className={`meal-badge ${item.Status==='Done' ? 'badge-green' : 'badge-gray'}`}>
+                {item.Status}
+              </span>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {showAdd && (
+        <Modal title="➕ Add Schedule Item" onClose={() => setShowAdd(false)}>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Day #</label>
+              <input className="form-input" type="number" min="1" value={form.Day}
+                onChange={e => setForm({...form, Day: e.target.value})} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Type</label>
+              <select className="form-select" value={form.Meal} onChange={e => setForm({...form, Meal:e.target.value})}>
+                <option>Breakfast</option><option>Lunch</option><option>Dinner</option><option>Activity</option>
+              </select>
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Item / Name *</label>
+            <input className="form-input" placeholder="e.g. Pancakes & Bacon" value={form.Item}
+              onChange={e => setForm({...form, Item:e.target.value})} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Details</label>
+            <input className="form-input" placeholder="Notes, location, time…" value={form.Details}
+              onChange={e => setForm({...form, Details:e.target.value})} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Assigned Volunteer</label>
+            <input className="form-input" placeholder="Name" value={form['Assigned Volunteer']}
+              onChange={e => setForm({...form, 'Assigned Volunteer':e.target.value})} />
+          </div>
+          <div className="modal-actions">
+            <button className="btn btn-outline" onClick={() => setShowAdd(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleAdd}>Add to Schedule</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── SHOPPING ─────────────────────────────────────────────────────────────────
+function ShoppingView() {
+  const { data, loading, reload, setData } = useData('getShopping');
+  const [filter, setFilter]   = React.useState('All');
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [form, setForm] = React.useState({ Meal:'Breakfast', Category:'Groceries', Item:'', Quantity:'', Store:'', Volunteer:'', Status:'Pending', Cost:0 });
+
+  const meals = ['All','Breakfast','Lunch','Dinner','Supplies'];
+
+  const filtered = React.useMemo(() => {
+    if (!data) return [];
+    return filter === 'All' ? data : data.filter(i => i.Meal === filter);
+  }, [data, filter]);
+
+  const toggleStatus = async (item) => {
+    const newStatus = item.Status === 'Purchased' ? 'Pending' : 'Purchased';
+    if (USE_MOCK_DATA) {
+      const idx = mockState.shopping.findIndex(i => i.ID === item.ID);
+      if (idx !== -1) mockState.shopping[idx].Status = newStatus;
+    }
+    await api.post({ action:'updateStatus', id:item.ID, status:newStatus });
+    setData(prev => prev.map(i => i.ID === item.ID ? {...i, Status:newStatus} : i));
+  };
+
+  const handleAdd = async () => {
+    if (!form.Item.trim()) return;
+    const newItem = { ...form, ID:'s'+ Date.now(), _row: (data?.length||0)+2 };
+    if (USE_MOCK_DATA) mockState.shopping.push(newItem);
+    await api.post({ action:'addShoppingItem', data: newItem });
+    setShowAdd(false);
+    reload();
+  };
+
+  const purchased = data ? data.filter(i => i.Status==='Purchased').length : 0;
+  const total     = data ? data.length : 0;
+
+  if (loading) return <div className="empty-state"><div className="emoji">⏳</div><p>Loading shopping list…</p></div>;
+
+  return (
+    <div>
+      <div className="section-header">
+        <div>
+          <div className="section-title">🛒 Shopping List</div>
+          <div className="text-muted" style={{marginTop:4}}>{purchased} of {total} items purchased</div>
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(true)}>+ Add Item</button>
+      </div>
+
+      <div className="card" style={{padding:'12px 16px',marginBottom:16}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:6,fontSize:'.82rem',color:'var(--muted)'}}>
+          <span>Shopping Progress</span>
+          <span>{total > 0 ? Math.round(purchased/total*100) : 0}%</span>
+        </div>
+        <div className="progress-bar-wrap">
+          <div className="progress-bar" style={{width: total>0 ? `${purchased/total*100}%` : '0%'}} />
+        </div>
+      </div>
+
+      <div className="filter-bar">
+        {meals.map(m => (
+          <button key={m} className={`filter-btn ${filter===m?'active':''}`} onClick={() => setFilter(m)}>
+            {m !== 'All' ? MEAL_ICONS[m]+' ' : ''}{m}
+          </button>
+        ))}
+      </div>
+
+      {filtered.map(item => (
+        <div key={item.ID} className={`shopping-item ${item.Status==='Purchased'?'purchased':''}`}>
+          <button className={`check-btn ${item.Status==='Purchased'?'checked':''}`} onClick={() => toggleStatus(item)}>
+            {item.Status==='Purchased' && <span style={{color:'var(--green)',fontWeight:800,fontSize:'.85rem'}}>✓</span>}
+          </button>
+          <div className="item-info">
+            <div className="item-name" style={{textDecoration:item.Status==='Purchased'?'line-through':'none'}}>{item.Item}</div>
+            <div className="item-meta">Qty: {item.Quantity} · 👤 {item.Volunteer}</div>
+            <div className="item-store">🏪 {item.Store}</div>
+          </div>
+          {parseFloat(item.Cost) > 0 && (
+            <div style={{fontSize:'.85rem',fontWeight:700,color:'var(--green)',whiteSpace:'nowrap'}}>
+              ${Number(item.Cost).toFixed(2)}
+            </div>
+          )}
+          <span className={`meal-badge ${item.Status==='Purchased'?'badge-green':'badge-amber'}`} style={{fontSize:'.68rem',marginLeft:4}}>
+            {item.Status}
+          </span>
+        </div>
+      ))}
+
+      {showAdd && (
+        <Modal title="➕ Add Shopping Item" onClose={() => setShowAdd(false)}>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Meal</label>
+              <select className="form-select" value={form.Meal} onChange={e => setForm({...form,Meal:e.target.value})}>
+                <option>Breakfast</option><option>Lunch</option><option>Dinner</option><option>Supplies</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Category</label>
+              <select className="form-select" value={form.Category} onChange={e => setForm({...form,Category:e.target.value})}>
+                <option>Groceries</option><option>Produce</option><option>Dairy</option><option>Supplies</option>
+              </select>
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Item Name *</label>
+            <input className="form-input" placeholder="e.g. Eggs" value={form.Item} onChange={e => setForm({...form,Item:e.target.value})} />
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Quantity</label>
+              <input className="form-input" placeholder="e.g. 2 dozen" value={form.Quantity} onChange={e => setForm({...form,Quantity:e.target.value})} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Store</label>
+              <input className="form-input" placeholder="e.g. Costco" value={form.Store} onChange={e => setForm({...form,Store:e.target.value})} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Assigned Volunteer</label>
+            <input className="form-input" placeholder="Name" value={form.Volunteer} onChange={e => setForm({...form,Volunteer:e.target.value})} />
+          </div>
+          <div className="modal-actions">
+            <button className="btn btn-outline" onClick={() => setShowAdd(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleAdd}>Add Item</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── EXPENSES ─────────────────────────────────────────────────────────────────
+function ExpensesView() {
+  const { data: expenses, loading: exLoading, reload } = useData('getExpenses');
+  const { data: summary,  loading: sumLoading }        = useData('getSummary');
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [form, setForm] = React.useState({ Volunteer:'', Store:'', Item:'', Amount:'', Date: new Date().toISOString().split('T')[0] });
+
+  const handleAdd = async () => {
+    if (!form.Volunteer.trim() || !form.Amount) return;
+    const entry = { ...form, Amount: parseFloat(form.Amount)||0 };
+    if (USE_MOCK_DATA) mockState.expenses.push({ ...entry, _row: mockState.expenses.length+2 });
+    await api.post({ action:'addExpense', data: entry });
+    setShowAdd(false);
+    reload();
+  };
+
+  if (exLoading || sumLoading) return <div className="empty-state"><div className="emoji">⏳</div><p>Loading expenses…</p></div>;
+
+  return (
+    <div>
+      <div className="section-header">
+        <div className="section-title">💰 Expenses & Cost Split</div>
+        <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(true)}>+ Log Expense</button>
+      </div>
+
+      <div className="stats-grid">
+        <div className="stat-card">
+          <div className="stat-value">${summary?.totalCost?.toFixed(2) || '0.00'}</div>
+          <div className="stat-label">Total Spent</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{summary?.totalPeople || 0}</div>
+          <div className="stat-label">Participants</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">${summary?.costPerPerson?.toFixed(2) || '0.00'}</div>
+          <div className="stat-label">Per Person</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{Object.keys(summary?.byStore || {}).length}</div>
+          <div className="stat-label">Stores</div>
+        </div>
+      </div>
+
+      {summary?.byStore && Object.keys(summary.byStore).length > 0 && (
+        <div className="card">
+          <div className="card-header"><div className="card-title">By Store</div></div>
+          {Object.entries(summary.byStore).map(([store, amt]) => (
+            <div key={store} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border)'}}>
+              <span className="store-tag">🏪 {store}</span>
+              <span style={{fontWeight:700,color:'var(--green)'}}>${amt.toFixed(2)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {summary?.familyCosts?.length > 0 && (
+        <div className="card">
+          <div className="card-header"><div className="card-title">👨‍👩‍👧‍👦 Cost Split by Family</div></div>
+          {summary.familyCosts.map(f => (
+            <div key={f.family} className="family-row">
+              <div className="family-avatar">🏕️</div>
+              <div>
+                <div style={{fontWeight:600}}>{f.family}</div>
+                <div style={{fontSize:'.78rem',color:'var(--muted)'}}>{f.members} members</div>
+              </div>
+              <div className="family-cost">${f.cost.toFixed(2)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="card">
+        <div className="card-header"><div className="card-title">All Logged Expenses</div></div>
+        <div style={{overflowX:'auto'}}>
+          <table className="expense-table">
+            <thead>
+              <tr><th>Volunteer</th><th>Store</th><th>Item</th><th>Amount</th><th>Date</th></tr>
+            </thead>
+            <tbody>
+              {(expenses||[]).map((e,i) => (
+                <tr key={i}>
+                  <td style={{fontWeight:600}}>{e.Volunteer}</td>
+                  <td><span className="store-tag">{e.Store}</span></td>
+                  <td>{e.Item}</td>
+                  <td style={{fontWeight:700,color:'var(--green)'}}>${Number(e.Amount).toFixed(2)}</td>
+                  <td style={{color:'var(--muted)'}}>{e.Date}</td>
+                </tr>
+              ))}
+              {(!expenses || expenses.length===0) && (
+                <tr><td colSpan={5} style={{textAlign:'center',color:'var(--muted)',padding:'24px'}}>No expenses logged yet</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {showAdd && (
+        <Modal title="💸 Log an Expense" onClose={() => setShowAdd(false)}>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Volunteer *</label>
+              <input className="form-input" placeholder="Your name" value={form.Volunteer} onChange={e => setForm({...form,Volunteer:e.target.value})} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Store</label>
+              <input className="form-input" placeholder="e.g. Costco" value={form.Store} onChange={e => setForm({...form,Store:e.target.value})} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Item(s) Purchased</label>
+            <input className="form-input" placeholder="What did you buy?" value={form.Item} onChange={e => setForm({...form,Item:e.target.value})} />
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Amount ($) *</label>
+              <input className="form-input" type="number" step="0.01" min="0" placeholder="0.00" value={form.Amount} onChange={e => setForm({...form,Amount:e.target.value})} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Date</label>
+              <input className="form-input" type="date" value={form.Date} onChange={e => setForm({...form,Date:e.target.value})} />
+            </div>
+          </div>
+          <div className="modal-actions">
+            <button className="btn btn-outline" onClick={() => setShowAdd(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleAdd}>Log Expense</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── SIGNUPS ──────────────────────────────────────────────────────────────────
+function SignupsView() {
+  const { data, loading, reload } = useData('getSignups');
+  const [showAdd, setShowAdd]     = React.useState(false);
+  const [form, setForm] = React.useState({ Name:'', Family:'', Members:1, Email:'', 'Dietary Notes':'' });
+
+  const totalPeople = React.useMemo(() =>
+    (data||[]).reduce((s,p) => s + (parseInt(p.Members)||0), 0), [data]);
+
+  const handleAdd = async () => {
+    if (!form.Name.trim()) return;
+    if (USE_MOCK_DATA) mockState.signups.push({ ...form, _row: mockState.signups.length+2, 'Signed Up At': new Date().toISOString() });
+    await api.post({ action:'addSignup', data: form });
+    setShowAdd(false);
+    reload();
+  };
+
+  if (loading) return <div className="empty-state"><div className="emoji">⏳</div><p>Loading signups…</p></div>;
+
+  return (
+    <div>
+      <div className="section-header">
+        <div>
+          <div className="section-title">📝 Signups</div>
+          <div className="text-muted" style={{marginTop:4}}>
+            {(data||[]).length} families · {totalPeople} total campers
+          </div>
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(true)}>+ Sign Up</button>
+      </div>
+
+      <div style={{background:'linear-gradient(135deg,var(--green),var(--green2))',borderRadius:'var(--radius)',padding:'24px 20px',color:'#fff',marginBottom:20,textAlign:'center'}}>
+        <div style={{fontSize:'3rem',fontWeight:900,lineHeight:1}}>{totalPeople}</div>
+        <div style={{opacity:.85,marginTop:6,fontSize:'.9rem'}}>Total Campers Registered 🏕️</div>
+      </div>
+
+      {(data||[]).map((p,i) => (
+        <div key={i} className="signup-card">
+          <div className="signup-avatar">{(p.Name||'?').charAt(0).toUpperCase()}</div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700}}>{p.Name}</div>
+            <div style={{fontSize:'.78rem',color:'var(--muted)'}}>
+              👨‍👩‍👧 {p.Family} · {p.Members} {parseInt(p.Members)===1?'person':'people'}
+            </div>
+            {p['Dietary Notes'] && p['Dietary Notes'] !== 'None' && (
+              <div style={{fontSize:'.72rem',color:'#d97706',marginTop:3}}>⚠️ {p['Dietary Notes']}</div>
+            )}
+          </div>
+          <div style={{fontSize:'.72rem',color:'var(--muted)',textAlign:'right',flexShrink:0}}>
+            {p['Signed Up At'] ? new Date(p['Signed Up At']).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : ''}
+          </div>
+        </div>
+      ))}
+
+      {showAdd && (
+        <Modal title="🏕️ Sign Up for Camping!" onClose={() => setShowAdd(false)}>
+          <div className="form-group">
+            <label className="form-label">Your Name *</label>
+            <input className="form-input" placeholder="Full name" value={form.Name} onChange={e => setForm({...form,Name:e.target.value})} />
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Family / Group</label>
+              <input className="form-input" placeholder="e.g. The Smiths" value={form.Family} onChange={e => setForm({...form,Family:e.target.value})} />
+            </div>
+            <div className="form-group">
+              <label className="form-label"># of People</label>
+              <input className="form-input" type="number" min="1" value={form.Members} onChange={e => setForm({...form,Members:parseInt(e.target.value)||1})} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Email</label>
+            <input className="form-input" type="email" placeholder="you@example.com" value={form.Email} onChange={e => setForm({...form,Email:e.target.value})} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Dietary Notes / Allergies</label>
+            <input className="form-input" placeholder="e.g. Vegetarian x2, Nut allergy" value={form['Dietary Notes']} onChange={e => setForm({...form,'Dietary Notes':e.target.value})} />
+          </div>
+          <div className="modal-actions">
+            <button className="btn btn-outline" onClick={() => setShowAdd(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleAdd}>Sign Me Up! 🎉</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── VOLUNTEERS ───────────────────────────────────────────────────────────────
+function VolunteersView() {
+  const { data: volunteers, loading } = useData('getVolunteers');
+  const { data: shopping }            = useData('getShopping');
+
+  const itemsByVolunteer = React.useMemo(() => {
+    return (shopping||[]).reduce((acc, item) => {
+      const v = item.Volunteer || 'Unassigned';
+      if (!acc[v]) acc[v] = [];
+      acc[v].push(item);
+      return acc;
+    }, {});
+  }, [shopping]);
+
+  if (loading) return <div className="empty-state"><div className="emoji">⏳</div><p>Loading volunteers…</p></div>;
+
+  return (
+    <div>
+      <div className="section-header">
+        <div className="section-title">🙋 Volunteers</div>
+      </div>
+      {(volunteers||[]).map((v,i) => {
+        const items = itemsByVolunteer[v.Name] || [];
+        const done  = items.filter(i => i.Status==='Purchased').length;
+        return (
+          <div key={i} className="card">
+            <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:items.length>0?12:0}}>
+              <div style={{width:46,height:46,borderRadius:12,background:'linear-gradient(135deg,var(--green2),var(--green3))',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,fontSize:'1.15rem',flexShrink:0}}>
+                {v.Name.charAt(0)}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:700}}>{v.Name}</div>
+                <div style={{fontSize:'.78rem',color:'var(--muted)'}}>👨‍👩‍👧 {v.Family} · 🏪 {v['Assigned Store']}</div>
+              </div>
+              <div style={{textAlign:'right'}}>
+                <div style={{fontWeight:800,color: done===items.length && items.length>0 ? 'var(--green)' : 'var(--text)'}}>{done}/{items.length}</div>
+                <div style={{fontSize:'.7rem',color:'var(--muted)'}}>items done</div>
+              </div>
+            </div>
+            {items.length > 0 && (
+              <div style={{borderTop:'1px solid var(--border)',paddingTop:10}}>
+                {items.map((item,j) => (
+                  <div key={j} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',fontSize:'.82rem'}}>
+                    <span>{item.Status==='Purchased'?'✅':'⬜'}</span>
+                    <span style={{flex:1,textDecoration:item.Status==='Purchased'?'line-through':'none',color:item.Status==='Purchased'?'var(--muted)':'var(--text)'}}>
+                      {item.Item}
+                    </span>
+                    <span style={{color:'var(--muted)',fontSize:'.72rem'}}>{item.Quantity}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── APP ROOT ─────────────────────────────────────────────────────────────────
+const TABS = [
+  { id:'schedule',   label:'📅 Schedule'  },
+  { id:'shopping',   label:'🛒 Shopping'  },
+  { id:'expenses',   label:'💰 Expenses'  },
+  { id:'signups',    label:'📝 Signups'   },
+  { id:'volunteers', label:'🙋 Volunteers'},
+];
+
+function App() {
+  const [tab, setTab] = React.useState('schedule');
+  return (
+    <div>
+      <div className="app-header">
+        <h1>🏕️ Camping Planner</h1>
+        <div className="nav-tabs">
+          {TABS.map(t => (
+            <button key={t.id}
+              className={`nav-tab ${tab===t.id?'active':''}`}
+              onClick={() => setTab(t.id)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="page">
+        {USE_MOCK_DATA && (
+          <div className="config-banner">
+            <span>⚠️</span>
+            <div>
+              <strong>Demo Mode</strong> — using sample data.
+              To connect live Google Sheets: deploy <code>apps-script/Code.gs</code> as a Web App,
+              paste the URL into <code>APPS_SCRIPT_URL</code> at the top of this file,
+              then set <code>USE_MOCK_DATA = false</code>.
+            </div>
+          </div>
+        )}
+        {tab === 'schedule'   && <ScheduleView />}
+        {tab === 'shopping'   && <ShoppingView />}
+        {tab === 'expenses'   && <ExpensesView />}
+        {tab === 'signups'    && <SignupsView />}
+        {tab === 'volunteers' && <VolunteersView />}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
