@@ -130,6 +130,10 @@
       margin-bottom: 10px;
     }
     .store-section-name { font-size: 1rem; font-weight: 700; color: var(--text); }
+    .store-volunteer {
+      font-size: .78rem; font-weight: 600; color: var(--primary);
+      background: #ede9fe; padding: 2px 9px; border-radius: 20px;
+    }
     .store-progress {
       font-size: .75rem; color: var(--muted);
       background: var(--border); padding: 2px 9px; border-radius: 20px;
@@ -520,15 +524,23 @@ function ShoppingView() {
   const [pendingRow, setPendingRow] = React.useState(null);
   const [form, setForm] = React.useState({ Meal:'Breakfast', Category:'Groceries', Item:'', Quantity:'', Store:'', Volunteer:'', Status:'Pending', Cost:0 });
 
-  // Group items by store
+  // Group items by store + volunteer combination
   const byStore = React.useMemo(() => {
     if (!data) return {};
-    return data.reduce((acc, item) => {
+    const grouped = data.reduce((acc, item) => {
       const store = item.Store || 'Other';
-      if (!acc[store]) acc[store] = [];
-      acc[store].push(item);
+      const volunteer = item.Volunteer || 'Unassigned';
+      const key = `${store}|||${volunteer}`;
+      if (!acc[key]) acc[key] = { store, volunteer, items: [] };
+      acc[key].items.push(item);
       return acc;
     }, {});
+    // Sort so same-store sections are adjacent, then by volunteer name
+    return Object.fromEntries(
+      Object.entries(grouped).sort(([, a], [, b]) =>
+        a.store.localeCompare(b.store) || a.volunteer.localeCompare(b.volunteer)
+      )
+    );
   }, [data]);
 
   const toggleStatus = async (item) => {
@@ -582,15 +594,16 @@ function ShoppingView() {
         </div>
       </div>
 
-      {/* One section per store */}
-      {Object.entries(byStore).map(([store, items]) => {
+      {/* One section per store + volunteer */}
+      {Object.entries(byStore).map(([key, { store, volunteer, items }]) => {
         const storeDone = items.filter(i => i.Status==='Purchased').length;
         const allDone   = storeDone === items.length;
         return (
-          <div key={store} className="store-section">
+          <div key={key} className="store-section">
             <div className="store-section-header">
               <div style={{display:'flex',alignItems:'center',gap:8}}>
                 <span className="store-section-name">🏪 {store}</span>
+                <span className="store-volunteer">👤 {volunteer}</span>
                 <span className="store-progress">{storeDone}/{items.length} done</span>
               </div>
               {allDone && <span className="store-all-done">✓ All Done!</span>}
