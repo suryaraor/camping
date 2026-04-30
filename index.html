@@ -43,7 +43,7 @@
       position: sticky; top: 0; z-index: 100;
       box-shadow: 0 2px 8px rgba(0,0,0,.2);
     }
-    .app-header h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 14px; }
+    .app-header h1 { font-size: 1.25rem; font-weight: 700; }
     .nav-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
     .nav-tabs::-webkit-scrollbar { display: none; }
     .nav-tab {
@@ -252,6 +252,30 @@
       padding: 12px 16px; margin-bottom: 20px; font-size: .85rem; display: flex; gap: 10px; align-items: flex-start;
     }
     .config-banner code { background: rgba(0,0,0,.08); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: .82rem; }
+
+    /* ── Sync ────────────────────────────────────────────────── */
+    .header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .sync-btn {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.25);
+      border-radius: 20px; padding: 5px 12px;
+      color: #fff; font-size: .75rem; font-weight: 600; cursor: pointer;
+      transition: background .15s; white-space: nowrap; flex-shrink: 0;
+    }
+    .sync-btn:hover:not(:disabled) { background: rgba(255,255,255,.25); }
+    .sync-btn:disabled { opacity: .65; cursor: default; }
+    .sync-btn.offline { background: rgba(231,111,81,.3); border-color: rgba(231,111,81,.6); }
+    .sync-icon { font-size: .95rem; display: inline-block; line-height: 1; }
+    .sync-icon.spin { animation: spin .8s linear infinite; }
+    .sync-badge {
+      background: var(--amber); color: #7c2d12;
+      border-radius: 10px; padding: 1px 6px; font-size: .68rem; font-weight: 800;
+    }
+    .offline-banner {
+      background: #fef2f2; border: 1px solid #fca5a5; border-radius: var(--radius);
+      padding: 10px 16px; margin-bottom: 16px; font-size: .83rem;
+      display: flex; gap: 8px; align-items: center; color: #991b1b;
+    }
     @media (max-width: 480px) { .form-row { grid-template-columns: 1fr; } .stats-grid { grid-template-columns: 1fr 1fr; } }
   </style>
 </head>
@@ -343,32 +367,150 @@ function computeSummary(data) {
   };
 }
 
-// ─── API CLIENT ───────────────────────────────────────────────────────────────
+// ─── CACHE ───────────────────────────────────────────────────────────────────
+const Cache = {
+  PREFIX: 'camping_cache_',
+  ACTIONS: ['getSchedule','getShopping','getVolunteers','getFamilies','getExpenses','getSignups','getSummary'],
+  get(action) {
+    try { const r = localStorage.getItem(this.PREFIX + action); return r ? JSON.parse(r) : null; } catch { return null; }
+  },
+  set(action, data) {
+    try { localStorage.setItem(this.PREFIX + action, JSON.stringify({ data, ts: Date.now() })); } catch {}
+  },
+  hasAll() { return this.ACTIONS.every(a => this.get(a) !== null); },
+};
+
+// ─── PENDING QUEUE ────────────────────────────────────────────────────────────
+const PendingQueue = {
+  KEY: 'camping_pending',
+  getAll() { try { return JSON.parse(localStorage.getItem(this.KEY) || '[]'); } catch { return []; } },
+  push(body) {
+    const q = this.getAll();
+    q.push({ id: Date.now() + Math.random(), body });
+    localStorage.setItem(this.KEY, JSON.stringify(q));
+  },
+  remove(id) { localStorage.setItem(this.KEY, JSON.stringify(this.getAll().filter(i => i.id !== id))); },
+};
+
+// ─── RAW API (no offline logic) ───────────────────────────────────────────────
+async function rawGet(action) {
+  if (USE_MOCK_DATA) {
+    await new Promise(r => setTimeout(r, 280));
+    const map = { getSchedule:'schedule', getShopping:'shopping', getVolunteers:'volunteers',
+                  getFamilies:'families', getExpenses:'expenses', getSignups:'signups' };
+    if (action === 'getSummary') return computeSummary(mockState);
+    return JSON.parse(JSON.stringify(mockState[map[action]] || []));
+  }
+  const res  = await fetch(`${APPS_SCRIPT_URL}?action=${action}`);
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error);
+  return json.data;
+}
+
+async function rawPost(body) {
+  if (USE_MOCK_DATA) {
+    await new Promise(r => setTimeout(r, 180));
+    return { ok: true };
+  }
+  const res  = await fetch(APPS_SCRIPT_URL, { method:'POST', body: JSON.stringify(body) });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error);
+  return json.data;
+}
+
+// ─── OFFLINE-AWARE API ────────────────────────────────────────────────────────
 const api = {
   async get(action) {
-    if (USE_MOCK_DATA) {
-      await new Promise(r => setTimeout(r, 280));
-      const map = { getSchedule:'schedule', getShopping:'shopping', getVolunteers:'volunteers',
-                    getFamilies:'families', getExpenses:'expenses', getSignups:'signups' };
-      if (action === 'getSummary') return computeSummary(mockState);
-      return JSON.parse(JSON.stringify(mockState[map[action]] || []));
+    try {
+      const data = await rawGet(action);
+      if (!USE_MOCK_DATA) Cache.set(action, data);
+      return data;
+    } catch (e) {
+      const cached = Cache.get(action);
+      if (cached) return cached.data;
+      throw e;
     }
-    const res  = await fetch(`${APPS_SCRIPT_URL}?action=${action}`);
-    const json = await res.json();
-    if (!json.success) throw new Error(json.error);
-    return json.data;
   },
   async post(body) {
-    if (USE_MOCK_DATA) {
-      await new Promise(r => setTimeout(r, 180));
-      return { ok: true };
+    try {
+      return await rawPost(body);
+    } catch (e) {
+      if (!navigator.onLine) {
+        PendingQueue.push(body);
+        window.dispatchEvent(new CustomEvent('campingPendingUpdate'));
+        return { ok: true, queued: true };
+      }
+      throw e;
     }
-    const res  = await fetch(APPS_SCRIPT_URL, { method:'POST', body: JSON.stringify(body) });
-    const json = await res.json();
-    if (!json.success) throw new Error(json.error);
-    return json.data;
   },
 };
+
+// ─── SYNC CONTEXT ─────────────────────────────────────────────────────────────
+const SyncContext = React.createContext({
+  isOnline: true, isSyncing: false, lastSyncAt: null, pendingCount: 0, syncVersion: 0, sync: () => {},
+});
+
+function SyncProvider({ children }) {
+  const [isOnline, setIsOnline]       = React.useState(navigator.onLine);
+  const [isSyncing, setIsSyncing]     = React.useState(false);
+  const [lastSyncAt, setLastSyncAt]   = React.useState(() => {
+    const s = localStorage.getItem('camping_last_sync'); return s ? parseInt(s) : null;
+  });
+  const [pendingCount, setPending]    = React.useState(() => PendingQueue.getAll().length);
+  const [syncVersion, setSyncVersion] = React.useState(0);
+  const syncingRef = React.useRef(false);
+
+  const sync = React.useCallback(async () => {
+    if (syncingRef.current || !navigator.onLine) return;
+    syncingRef.current = true;
+    setIsSyncing(true);
+    try {
+      // 1. Push local writes first
+      for (const item of PendingQueue.getAll()) {
+        try { await rawPost(item.body); PendingQueue.remove(item.id); } catch {}
+      }
+      setPending(PendingQueue.getAll().length);
+      // 2. Pull fresh data from server and cache it
+      await Promise.all(Cache.ACTIONS.map(async a => {
+        try { Cache.set(a, await rawGet(a)); } catch {}
+      }));
+      const now = Date.now();
+      setLastSyncAt(now);
+      localStorage.setItem('camping_last_sync', String(now));
+      setSyncVersion(v => v + 1);
+    } finally {
+      syncingRef.current = false;
+      setIsSyncing(false);
+    }
+  }, []);
+
+  // Auto-sync when network restores
+  React.useEffect(() => {
+    const onOnline  = () => { setIsOnline(true);  sync(); };
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online',  onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
+  }, [sync]);
+
+  // Track new pending items queued by api.post()
+  React.useEffect(() => {
+    const onPending = () => setPending(PendingQueue.getAll().length);
+    window.addEventListener('campingPendingUpdate', onPending);
+    return () => window.removeEventListener('campingPendingUpdate', onPending);
+  }, []);
+
+  // Pre-warm cache on first ever load
+  React.useEffect(() => {
+    if (!Cache.hasAll() && navigator.onLine) sync();
+  }, []); // eslint-disable-line
+
+  return (
+    <SyncContext.Provider value={{ isOnline, isSyncing, lastSyncAt, pendingCount, syncVersion, sync }}>
+      {children}
+    </SyncContext.Provider>
+  );
+}
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const MEAL_ICONS   = { Breakfast:'🌅', Lunch:'☀️', Dinner:'🔥', Activity:'🎒', Supplies:'🧰' };
@@ -376,16 +518,31 @@ const MEAL_COLORS  = { Breakfast:'#fef9c3', Lunch:'#dcfce7', Dinner:'#fee2e2', A
 
 // ─── HOOKS ────────────────────────────────────────────────────────────────────
 function useData(action) {
-  const [data, setData]       = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
+  const { syncVersion } = React.useContext(SyncContext);
+  // Serve from cache instantly — no loading flash on repeat visits
+  const [data, setData]       = React.useState(() => { const c = Cache.get(action); return c ? c.data : null; });
+  const [loading, setLoading] = React.useState(() => Cache.get(action) === null);
   const [error, setError]     = React.useState(null);
+
   const load = React.useCallback(async () => {
-    setLoading(true); setError(null);
-    try   { setData(await api.get(action)); }
-    catch (e) { setError(e.message); }
-    finally   { setLoading(false); }
+    const cached = Cache.get(action);
+    if (cached) { setData(cached.data); setLoading(false); }
+    else setLoading(true);
+    setError(null);
+    try { setData(await api.get(action)); }
+    catch (e) { if (!Cache.get(action)) setError(e.message); }
+    finally { setLoading(false); }
   }, [action]);
+
   React.useEffect(() => { load(); }, [load]);
+
+  // After a sync, refresh from cache without hitting the network again
+  React.useEffect(() => {
+    if (syncVersion === 0) return;
+    const c = Cache.get(action);
+    if (c) setData(c.data);
+  }, [syncVersion, action]);
+
   return { data, loading, error, reload: load, setData };
 }
 
@@ -993,6 +1150,39 @@ function VolunteersView() {
   );
 }
 
+// ─── SYNC BUTTON ──────────────────────────────────────────────────────────────
+function SyncButton() {
+  const { isOnline, isSyncing, lastSyncAt, pendingCount, sync } = React.useContext(SyncContext);
+  const [, tick] = React.useReducer(x => x + 1, 0);
+
+  // Re-render every 30s so "X min ago" text stays current
+  React.useEffect(() => { const t = setInterval(tick, 30000); return () => clearInterval(t); }, []);
+
+  const label = () => {
+    if (!isOnline) return pendingCount > 0 ? `Offline · ${pendingCount} pending` : 'Offline';
+    if (isSyncing) return 'Syncing…';
+    if (!lastSyncAt) return 'Sync now';
+    const mins = Math.round((Date.now() - lastSyncAt) / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins === 1) return '1 min ago';
+    if (mins < 60) return `${mins}m ago`;
+    return `${Math.floor(mins / 60)}h ago`;
+  };
+
+  return (
+    <button
+      className={`sync-btn${!isOnline ? ' offline' : ''}`}
+      onClick={sync}
+      disabled={isSyncing || !isOnline}
+      title={isOnline ? 'Sync with Google Sheets' : 'You are offline'}
+    >
+      <span className={`sync-icon${isSyncing ? ' spin' : ''}`}>⟳</span>
+      <span>{label()}</span>
+      {pendingCount > 0 && !isSyncing && <span className="sync-badge">{pendingCount}</span>}
+    </button>
+  );
+}
+
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 const TABS = [
   { id:'schedule',   label:'📅 Schedule'  },
@@ -1004,10 +1194,14 @@ const TABS = [
 
 function App() {
   const [tab, setTab] = React.useState('schedule');
+  const { isOnline, pendingCount } = React.useContext(SyncContext);
   return (
     <div>
       <div className="app-header">
-        <h1>🏕️ Camping Planner</h1>
+        <div className="header-top">
+          <h1>🏕️ Camping Planner</h1>
+          <SyncButton />
+        </div>
         <div className="nav-tabs">
           {TABS.map(t => (
             <button key={t.id}
@@ -1019,6 +1213,12 @@ function App() {
         </div>
       </div>
       <div className="page">
+        {!isOnline && (
+          <div className="offline-banner">
+            <span>📵</span>
+            <span>You're offline — showing cached data.{pendingCount > 0 ? ` ${pendingCount} change${pendingCount !== 1 ? 's' : ''} will sync on reconnect.` : ''}</span>
+          </div>
+        )}
         {USE_MOCK_DATA && (
           <div className="config-banner">
             <span>⚠️</span>
@@ -1040,7 +1240,7 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+ReactDOM.createRoot(document.getElementById('root')).render(<SyncProvider><App /></SyncProvider>);
 </script>
 </body>
 </html>
