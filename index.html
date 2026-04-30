@@ -410,13 +410,20 @@ function ScheduleView() {
     if (!data) return {};
     const byDay = {};
     data.forEach(row => {
-      const d = `Day ${row.Day}`;
+      const d = row.Day != null && row.Day !== '' ? `Day ${row.Day}` : 'General';
       if (!byDay[d]) byDay[d] = {};
       const meal = row.Meal;
       if (!byDay[d][meal]) byDay[d][meal] = [];
       byDay[d][meal].push(row);
     });
-    return byDay;
+    const sorted = Object.fromEntries(
+      Object.entries(byDay).sort(([a], [b]) => {
+        if (a === 'General') return 1;
+        if (b === 'General') return -1;
+        return parseInt(a.replace('Day ', '')) - parseInt(b.replace('Day ', ''));
+      })
+    );
+    return sorted;
   }, [data]);
 
   const handleAdd = async () => {
