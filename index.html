@@ -408,12 +408,15 @@ function ScheduleView() {
 
   const grouped = React.useMemo(() => {
     if (!data) return {};
-    return data.reduce((acc, row) => {
+    const byDay = {};
+    data.forEach(row => {
       const d = `Day ${row.Day}`;
-      if (!acc[d]) acc[d] = [];
-      acc[d].push(row);
-      return acc;
-    }, {});
+      if (!byDay[d]) byDay[d] = {};
+      const meal = row.Meal;
+      if (!byDay[d][meal]) byDay[d][meal] = [];
+      byDay[d][meal].push(row);
+    });
+    return byDay;
   }, [data]);
 
   const handleAdd = async () => {
@@ -435,26 +438,31 @@ function ScheduleView() {
         <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(true)}>+ Add Item</button>
       </div>
 
-      {Object.entries(grouped).map(([day, items]) => (
+      {Object.entries(grouped).map(([day, mealTypes]) => (
         <div key={day} className="day-card">
           <div className="day-label">{day}</div>
-          {items.map((item, i) => (
-            <div key={i} className="meal-row">
-              <div className="meal-icon" style={{background: MEAL_COLORS[item.Meal] || '#f3f4f6'}}>
-                {MEAL_ICONS[item.Meal] || '📌'}
+          {Object.entries(mealTypes).map(([mealType, items]) => {
+            const byVolunteer = {};
+            items.forEach(item => {
+              const v = item['Assigned Volunteer'] || 'Unassigned';
+              if (!byVolunteer[v]) byVolunteer[v] = [];
+              byVolunteer[v].push(item.Item);
+            });
+            const content = Object.entries(byVolunteer)
+              .map(([v, its]) => `${v} (${its.join(', ')})`)
+              .join(', ');
+            return (
+              <div key={mealType} className="meal-row">
+                <div className="meal-icon" style={{background: MEAL_COLORS[mealType] || '#f3f4f6'}}>
+                  {MEAL_ICONS[mealType] || '📌'}
+                </div>
+                <div className="meal-info">
+                  <div className="meal-name">{mealType}</div>
+                  <div className="meal-detail">{content}</div>
+                </div>
               </div>
-              <div className="meal-info">
-                <div className="meal-name">{item.Item}</div>
-                {item.Details && <div className="meal-detail">{item.Details}</div>}
-                {item['Assigned Volunteer'] && (
-                  <div style={{fontSize:'.72rem',color:'#6b7280',marginTop:3}}>👤 {item['Assigned Volunteer']}</div>
-                )}
-              </div>
-              <span className={`meal-badge ${item.Status==='Done' ? 'badge-green' : 'badge-gray'}`}>
-                {item.Status}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ))}
 
