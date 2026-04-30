@@ -163,6 +163,16 @@
     .item-tile--done .item-tile-name { text-decoration: line-through; color: var(--muted); }
     .item-tile-qty { font-size: .72rem; color: var(--muted); }
     .item-tile-meal { font-size: .68rem; color: var(--muted); margin-top: 1px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .item-tile-spinner {
+      position: absolute; top: 5px; right: 8px;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(0,0,0,.12);
+      border-top-color: var(--green);
+      border-radius: 50%;
+      animation: spin .65s linear infinite;
+    }
+    .item-tile--loading { opacity: .7; cursor: wait; }
 
     /* ── Expenses ────────────────────────────────────────────────── */
     .expense-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
@@ -492,6 +502,7 @@ function ScheduleView() {
 function ShoppingView() {
   const { data, loading, reload, setData } = useData('getShopping');
   const [showAdd, setShowAdd] = React.useState(false);
+  const [pendingRow, setPendingRow] = React.useState(null);
   const [form, setForm] = React.useState({ Meal:'Breakfast', Category:'Groceries', Item:'', Quantity:'', Store:'', Volunteer:'', Status:'Pending', Cost:0 });
 
   // Group items by store
@@ -506,13 +517,19 @@ function ShoppingView() {
   }, [data]);
 
   const toggleStatus = async (item) => {
-    const newStatus = item.Status === 'Purchased' ? 'Pending' : 'Purchased';
-    if (USE_MOCK_DATA) {
-      const idx = mockState.shopping.findIndex(i => i._row === item._row);
-      if (idx !== -1) mockState.shopping[idx].Status = newStatus;
+    if (pendingRow !== null) return;
+    setPendingRow(item._row);
+    try {
+      const newStatus = item.Status === 'Purchased' ? 'Pending' : 'Purchased';
+      if (USE_MOCK_DATA) {
+        const idx = mockState.shopping.findIndex(i => i._row === item._row);
+        if (idx !== -1) mockState.shopping[idx].Status = newStatus;
+      }
+      await api.post({ action:'updateStatus', id:item.ID, row:item._row, status:newStatus });
+      setData(prev => prev.map(i => i._row === item._row ? {...i, Status:newStatus} : i));
+    } finally {
+      setPendingRow(null);
     }
-    await api.post({ action:'updateStatus', id:item.ID, row:item._row, status:newStatus });
-    setData(prev => prev.map(i => i._row === item._row ? {...i, Status:newStatus} : i));
   };
 
   const handleAdd = async () => {
@@ -565,20 +582,25 @@ function ShoppingView() {
             </div>
 
             <div className="item-tiles-grid">
-              {items.map(item => (
-                <button
-                  key={item.ID}
-                  className={`item-tile${item.Status==='Purchased' ? ' item-tile--done' : ''}`}
-                  onClick={() => toggleStatus(item)}
-                >
-                  {item.Status==='Purchased' && (
-                    <div className="item-tile-check">✓</div>
-                  )}
-                  <div className="item-tile-name">{item.Item}</div>
-                  <div className="item-tile-qty">{item.Quantity}</div>
-                  <div className="item-tile-meal">{MEAL_ICONS[item.Meal] || '🍽️'} {item.Meal}</div>
-                </button>
-              ))}
+              {items.map(item => {
+                const isLoading = pendingRow === item._row;
+                return (
+                  <button
+                    key={item._row}
+                    className={`item-tile${item.Status==='Purchased' ? ' item-tile--done' : ''}${isLoading ? ' item-tile--loading' : ''}`}
+                    onClick={() => toggleStatus(item)}
+                    disabled={pendingRow !== null}
+                  >
+                    {isLoading
+                      ? <div className="item-tile-spinner" />
+                      : item.Status==='Purchased' && <div className="item-tile-check">✓</div>
+                    }
+                    <div className="item-tile-name">{item.Item}</div>
+                    <div className="item-tile-qty">{item.Quantity}</div>
+                    <div className="item-tile-meal">{MEAL_ICONS[item.Meal] || '🍽️'} {item.Meal}</div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         );
