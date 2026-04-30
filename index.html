@@ -912,8 +912,9 @@ function SignupsView() {
 
 // ─── VOLUNTEERS ───────────────────────────────────────────────────────────────
 function VolunteersView() {
-  const { data: volunteers, loading } = useData('getVolunteers');
-  const { data: shopping }            = useData('getShopping');
+  const { data: volunteers, loading }          = useData('getVolunteers');
+  const { data: shopping, setData: setShopping } = useData('getShopping');
+  const [pendingRow, setPendingRow] = React.useState(null);
 
   const itemsByVolunteer = React.useMemo(() => {
     return (shopping||[]).reduce((acc, item) => {
@@ -923,6 +924,22 @@ function VolunteersView() {
       return acc;
     }, {});
   }, [shopping]);
+
+  const toggleStatus = async (item) => {
+    if (pendingRow !== null) return;
+    setPendingRow(item._row);
+    try {
+      const newStatus = item.Status === 'Purchased' ? 'Pending' : 'Purchased';
+      if (USE_MOCK_DATA) {
+        const idx = mockState.shopping.findIndex(i => i._row === item._row);
+        if (idx !== -1) mockState.shopping[idx].Status = newStatus;
+      }
+      await api.post({ action:'updateStatus', id:item.ID, row:item._row, status:newStatus });
+      setShopping(prev => prev.map(i => i._row === item._row ? {...i, Status:newStatus} : i));
+    } finally {
+      setPendingRow(null);
+    }
+  };
 
   if (loading) return <div className="empty-state"><div className="emoji">⏳</div><p>Loading volunteers…</p></div>;
 
@@ -952,13 +969,20 @@ function VolunteersView() {
             {items.length > 0 && (
               <div style={{borderTop:'1px solid var(--border)',paddingTop:10}}>
                 {items.map((item,j) => (
-                  <div key={j} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',fontSize:'.82rem'}}>
-                    <span>{item.Status==='Purchased'?'✅':'⬜'}</span>
+                  <button
+                    key={j}
+                    onClick={() => toggleStatus(item)}
+                    disabled={pendingRow !== null}
+                    style={{display:'flex',alignItems:'center',gap:8,padding:'6px 4px',fontSize:'.82rem',width:'100%',background:'none',border:'none',borderRadius:6,cursor:pendingRow===null?'pointer':'default',textAlign:'left',transition:'background .15s'}}
+                    onMouseEnter={e => { if(pendingRow===null) e.currentTarget.style.background='var(--hover,rgba(0,0,0,.04))'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background='none'; }}
+                  >
+                    <span style={{fontSize:'1rem'}}>{pendingRow===item._row ? '⏳' : item.Status==='Purchased' ? '✅' : '⬜'}</span>
                     <span style={{flex:1,textDecoration:item.Status==='Purchased'?'line-through':'none',color:item.Status==='Purchased'?'var(--muted)':'var(--text)'}}>
                       {item.Item}
                     </span>
                     <span style={{color:'var(--muted)',fontSize:'.72rem'}}>{item.Quantity}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
