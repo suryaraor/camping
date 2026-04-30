@@ -194,7 +194,7 @@ function getSummary() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function addSignup(data) {
-  const headers = ['Name', 'Family', 'Members', 'Email', 'Dietary Notes', 'Signed Up At'];
+  const headers = ['Name', 'Family', 'Members', 'Nights', 'Email', 'Dietary Notes', 'Signed Up At'];
   data['Signed Up At'] = new Date().toISOString();
   return appendRow(SHEETS.SIGNUPS, headers, data);
 }
@@ -253,7 +253,7 @@ function setupSheetHeaders() {
     'Volunteers':   ['Name', 'Family', 'Assigned Store', 'Phone'],
     'Families':     ['Family Name', 'Members', 'Contact', 'Email'],
     'Expenses':     ['Volunteer', 'Store', 'Item', 'Amount', 'Receipt', 'Date'],
-    'Signups':      ['Name', 'Family', 'Members', 'Email', 'Dietary Notes', 'Signed Up At'],
+    'Signups':      ['Name', 'Family', 'Members', 'Nights', 'Email', 'Dietary Notes', 'Signed Up At'],
   };
 
   Object.entries(schema).forEach(([name, headers]) => {

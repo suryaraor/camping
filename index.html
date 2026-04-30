@@ -307,10 +307,10 @@ const MOCK = {
     { _row:5, Volunteer:'Ravi',  Store:'Trader Joes', Item:'Snacks & Chips',    Amount:32.50, Date:'2024-07-11' },
   ],
   signups: [
-    { _row:2, Name:'Priya Sharma', Family:'Sharma', Members:6, Email:'priya@example.com', 'Dietary Notes':'None',           'Signed Up At':'2024-06-20' },
-    { _row:3, Name:'Surya Rao',    Family:'Rao',    Members:4, Email:'surya@example.com', 'Dietary Notes':'Vegetarian x2',  'Signed Up At':'2024-06-21' },
-    { _row:4, Name:'Meera Patel',  Family:'Patel',  Members:5, Email:'meera@example.com', 'Dietary Notes':'Nut allergy x1', 'Signed Up At':'2024-06-22' },
-    { _row:5, Name:'Amit Kumar',   Family:'Kumar',  Members:3, Email:'amit@example.com',  'Dietary Notes':'None',           'Signed Up At':'2024-06-23' },
+    { _row:2, Name:'Priya Sharma', Family:'Sharma', Members:6, Nights:2, Email:'priya@example.com', 'Dietary Notes':'None',           'Signed Up At':'2024-06-20' },
+    { _row:3, Name:'Surya Rao',    Family:'Rao',    Members:4, Nights:2, Email:'surya@example.com', 'Dietary Notes':'Vegetarian x2',  'Signed Up At':'2024-06-21' },
+    { _row:4, Name:'Meera Patel',  Family:'Patel',  Members:5, Nights:1, Email:'meera@example.com', 'Dietary Notes':'Nut allergy x1', 'Signed Up At':'2024-06-22' },
+    { _row:5, Name:'Amit Kumar',   Family:'Kumar',  Members:3, Nights:1, Email:'amit@example.com',  'Dietary Notes':'None',           'Signed Up At':'2024-06-23' },
   ],
 };
 
@@ -802,7 +802,7 @@ function ExpensesView() {
 function SignupsView() {
   const { data, loading, reload } = useData('getSignups');
   const [showAdd, setShowAdd]     = React.useState(false);
-  const [form, setForm] = React.useState({ Name:'', Family:'', Members:1, Email:'', 'Dietary Notes':'' });
+  const [form, setForm] = React.useState({ Name:'', Family:'', Members:1, Nights:1, Email:'', 'Dietary Notes':'' });
 
   const totalPeople = React.useMemo(() =>
     (data||[]).reduce((s,p) => s + (parseInt(p.Members)||0), 0), [data]);
@@ -846,8 +846,8 @@ function SignupsView() {
               <div style={{fontSize:'.72rem',color:'#d97706',marginTop:3}}>⚠️ {p['Dietary Notes']}</div>
             )}
           </div>
-          <div style={{fontSize:'.72rem',color:'var(--muted)',textAlign:'right',flexShrink:0}}>
-            {p['Signed Up At'] ? new Date(p['Signed Up At']).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : ''}
+          <div style={{fontSize:'.78rem',color:'var(--muted)',textAlign:'right',flexShrink:0}}>
+            🌙 {parseInt(p.Nights)||1} {parseInt(p.Nights)===1?'night':'nights'}
           </div>
         </div>
       ))}
@@ -866,6 +866,17 @@ function SignupsView() {
             <div className="form-group">
               <label className="form-label"># of People</label>
               <input className="form-input" type="number" min="1" value={form.Members} onChange={e => setForm({...form,Members:parseInt(e.target.value)||1})} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Number of Nights</label>
+            <div style={{display:'flex',gap:12,marginTop:4}}>
+              {[1,2].map(n => (
+                <label key={n} style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',fontWeight:form.Nights===n?700:'normal'}}>
+                  <input type="radio" name="nights" value={n} checked={form.Nights===n} onChange={() => setForm({...form,Nights:n})} />
+                  🌙 {n} {n===1?'night':'nights'}
+                </label>
+              ))}
             </div>
           </div>
           <div className="form-group">
