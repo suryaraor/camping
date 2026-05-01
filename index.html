@@ -525,8 +525,26 @@ function SyncProvider({ children }) {
 const MEAL_ICONS   = { Breakfast:'🌅', Lunch:'☀️', Dinner:'🔥', Activity:'🎒', Supplies:'🧰' };
 const MEAL_COLORS  = { Breakfast:'#fef9c3', Lunch:'#dcfce7', Dinner:'#fee2e2', Activity:'#dbeafe', Supplies:'#f3e8ff' };
 
-// Treat both 'Purchased' (app-set) and 'Done' (manually set in Google Sheets) as complete
-const isDone = s => s === 'Purchased' || s === 'Done';
+const normalizeText = value => String(value ?? '').trim().toLowerCase();
+
+// Treat both app and sheet variants like "Purchased ", "purchased", and "Done" as complete
+const isDone = status => {
+  const s = normalizeText(status);
+  return s === 'purchased' || s === 'done';
+};
+
+const matchesVolunteer = (value, myName) => {
+  const target = normalizeText(myName);
+  if (!target) return false;
+  const normalized = normalizeText(value);
+  if (!normalized) return false;
+  if (normalized === target) return true;
+  return normalized
+    .split(/[\/,&+]/)
+    .map(part => part.trim())
+    .filter(Boolean)
+    .some(part => part === target);
+};
 
 // ─── HOOKS ────────────────────────────────────────────────────────────────────
 function useData(action) {
@@ -786,8 +804,8 @@ function ShoppingView({ myName = '', saveName }) {
   const byStore = React.useMemo(() => {
     if (!data) return {};
     const grouped = data.reduce((acc, item) => {
-      const store = item.Store || 'Other';
-      const volunteer = item.Volunteer || 'Unassigned';
+      const store = String(item.Store || 'Other').trim() || 'Other';
+      const volunteer = String(item.Volunteer || '').trim() || 'Unassigned';
       const key = `${store}|||${volunteer}`;
       if (!acc[key]) acc[key] = { store, volunteer, items: [] };
       acc[key].items.push(item);
@@ -828,9 +846,10 @@ function ShoppingView({ myName = '', saveName }) {
   const initiateToggle = (item) => {
     if (pendingRow !== null) return;
     const isMarkingDone = !isDone(item.Status);
+    const assignedName = String(item.Volunteer || '').trim();
     const assignedToOther = isMarkingDone
-      && item.Volunteer && item.Volunteer !== 'Unassigned'
-      && item.Volunteer !== myName;
+      && assignedName && normalizeText(assignedName) !== 'unassigned'
+      && !matchesVolunteer(assignedName, myName);
     if (assignedToOther) {
       if (!myName) { setPendingItem(item); } else { setConfirmState({ item, actingAs: myName }); }
       return;
@@ -1256,12 +1275,14 @@ function VolunteersView() {
 
   const itemsByVolunteer = React.useMemo(() => {
     return (shopping||[]).reduce((acc, item) => {
-      const v = item.Volunteer || 'Unassigned';
-      if (!acc[v]) acc[v] = [];
-      acc[v].push(item);
+      const rawVolunteer = String(item.Volunteer || '').trim();
+      const match = (volunteers || []).find(v => matchesVolunteer(rawVolunteer, v.Name));
+      const key = match ? match.Name : (rawVolunteer || 'Unassigned');
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(item);
       return acc;
     }, {});
-  }, [shopping]);
+  }, [shopping, volunteers]);
 
   const toggleStatus = async (item) => {
     if (pendingRow !== null) return;
@@ -1349,9 +1370,9 @@ function MyView({ myName, saveName }) {
     setShopping(prev => prev.map(i => i._row === item._row ? { ...i, ...form } : i));
   };
 
-  const myItems    = React.useMemo(() => (shopping||[]).filter(i => i.Volunteer === myName), [shopping, myName]);
-  const mySchedule = React.useMemo(() => (schedule||[]).filter(i => i['Assigned Volunteer'] === myName || i['Assigned Volunteer'] === 'All'), [schedule, myName]);
-  const myExpenses = React.useMemo(() => (expenses||[]).filter(e => e.Volunteer === myName), [expenses, myName]);
+  const myItems    = React.useMemo(() => (shopping||[]).filter(i => matchesVolunteer(i.Volunteer, myName)), [shopping, myName]);
+  const mySchedule = React.useMemo(() => (schedule||[]).filter(i => matchesVolunteer(i['Assigned Volunteer'], myName) || normalizeText(i['Assigned Volunteer']) === 'all'), [schedule, myName]);
+  const myExpenses = React.useMemo(() => (expenses||[]).filter(e => normalizeText(e.Volunteer) === normalizeText(myName)), [expenses, myName]);
   const myTotal    = myExpenses.reduce((s, e) => s + (parseFloat(e.Amount)||0), 0);
   const myDone     = myItems.filter(i => isDone(i.Status)).length;
 
