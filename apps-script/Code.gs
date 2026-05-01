@@ -65,6 +65,7 @@ function doPost(e) {
       case 'updateStatus':       result = updateShoppingStatus(body.id, body.status);        break;
       case 'updateVolunteer':    result = updateShoppingVolunteer(body.id, body.volunteer); break;
       case 'updateCost':         result = updateShoppingCost(body.id, body.cost);           break;
+      case 'updateShoppingItem': result = updateShoppingItem(body.id, body.row, body.data); break;
       case 'updateSchedule':     result = updateScheduleItem(body.row, body.data);     break;
       case 'addScheduleItem':    result = addScheduleItem(body.data);                  break;
       default:                   result = { error: 'Unknown action: ' + action };
@@ -240,6 +241,14 @@ function updateShoppingCost(id, cost) {
   const match = rows.find(r => String(r['ID']) === String(id));
   if (!match) throw new Error('Item not found with ID: ' + id);
   return updateCell(SHEETS.SHOPPING, match._row, 'Cost', cost);
+}
+
+function updateShoppingItem(id, rowNum, data) {
+  const fields = ['Meal', 'Category', 'Item', 'Quantity', 'Store', 'Volunteer'];
+  fields.forEach(field => {
+    if (data[field] !== undefined) updateCell(SHEETS.SHOPPING, rowNum, field, data[field]);
+  });
+  return { updated: true, row: rowNum };
 }
 
 function updateScheduleItem(rowNum, data) {
