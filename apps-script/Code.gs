@@ -179,7 +179,7 @@ function getSummary() {
 
   // Shopping stats
   const totalItems     = shopping.length;
-  const purchasedItems = shopping.filter(i => i['Status'] === 'Purchased').length;
+  const purchasedItems = shopping.filter(i => i['Status'] === 'Purchased' || i['Status'] === 'Done').length;
 
   return {
     totalCost:       Math.round(totalCost * 100) / 100,

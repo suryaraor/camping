@@ -365,7 +365,7 @@ function computeSummary(data) {
     cost:    Math.round((parseInt(f.Members)||0) * costPerPerson * 100) / 100,
   }));
   const totalItems    = data.shopping.length;
-  const purchasedItems = data.shopping.filter(i => i.Status === 'Purchased').length;
+  const purchasedItems = data.shopping.filter(i => i.Status === 'Purchased' || i.Status === 'Done').length;
   return {
     totalCost:       Math.round(totalCost*100)/100,
     totalPeople,
@@ -525,20 +525,23 @@ function SyncProvider({ children }) {
 const MEAL_ICONS   = { Breakfast:'🌅', Lunch:'☀️', Dinner:'🔥', Activity:'🎒', Supplies:'🧰' };
 const MEAL_COLORS  = { Breakfast:'#fef9c3', Lunch:'#dcfce7', Dinner:'#fee2e2', Activity:'#dbeafe', Supplies:'#f3e8ff' };
 
+// Treat both 'Purchased' (app-set) and 'Done' (manually set in Google Sheets) as complete
+const isDone = s => s === 'Purchased' || s === 'Done';
+
 // ─── HOOKS ────────────────────────────────────────────────────────────────────
 function useData(action) {
   const { syncVersion } = React.useContext(SyncContext);
   // Serve from cache instantly — no loading flash on repeat visits
-  const [data, setData]       = React.useState(() => { const c = Cache.get(action); return c ? c.data : null; });
+  const [data, setDataRaw]    = React.useState(() => { const c = Cache.get(action); return c ? c.data : null; });
   const [loading, setLoading] = React.useState(() => Cache.get(action) === null);
   const [error, setError]     = React.useState(null);
 
   const load = React.useCallback(async () => {
     const cached = Cache.get(action);
-    if (cached) { setData(cached.data); setLoading(false); }
+    if (cached) { setDataRaw(cached.data); setLoading(false); }
     else setLoading(true);
     setError(null);
-    try { setData(await api.get(action)); }
+    try { setDataRaw(await api.get(action)); }
     catch (e) { if (!Cache.get(action)) setError(e.message); }
     finally { setLoading(false); }
   }, [action]);
@@ -549,8 +552,18 @@ function useData(action) {
   React.useEffect(() => {
     if (syncVersion === 0) return;
     const c = Cache.get(action);
-    if (c) setData(c.data);
+    if (c) setDataRaw(c.data);
   }, [syncVersion, action]);
+
+  // Wrap setData so optimistic updates also persist to cache.
+  // This ensures switching tabs loads the latest state rather than stale cached data.
+  const setData = React.useCallback(updater => {
+    setDataRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      Cache.set(action, next);
+      return next;
+    });
+  }, [action]);
 
   return { data, loading, error, reload: load, setData };
 }
@@ -792,7 +805,7 @@ function ShoppingView({ myName = '', saveName }) {
     if (pendingRow !== null) return;
     setPendingRow(item._row);
     try {
-      const newStatus = item.Status === 'Purchased' ? 'Pending' : 'Purchased';
+      const newStatus = isDone(item.Status) ? 'Pending' : 'Purchased';
       const shouldReassign = newStatus === 'Purchased' && newVolunteer && newVolunteer !== item.Volunteer;
       if (USE_MOCK_DATA) {
         const idx = mockState.shopping.findIndex(i => i._row === item._row);
@@ -814,7 +827,7 @@ function ShoppingView({ myName = '', saveName }) {
 
   const initiateToggle = (item) => {
     if (pendingRow !== null) return;
-    const isMarkingDone = item.Status !== 'Purchased';
+    const isMarkingDone = !isDone(item.Status);
     const assignedToOther = isMarkingDone
       && item.Volunteer && item.Volunteer !== 'Unassigned'
       && item.Volunteer !== myName;
@@ -840,7 +853,7 @@ function ShoppingView({ myName = '', saveName }) {
     reload();
   };
 
-  const purchased = data ? data.filter(i => i.Status==='Purchased').length : 0;
+  const purchased = data ? data.filter(i => isDone(i.Status)).length : 0;
   const total     = data ? data.length : 0;
 
   if (loading) return <div className="empty-state"><div className="emoji">⏳</div><p>Loading shopping list…</p></div>;
@@ -868,7 +881,7 @@ function ShoppingView({ myName = '', saveName }) {
 
       {/* One section per store + volunteer */}
       {Object.entries(byStore).map(([key, { store, volunteer, items }]) => {
-        const storeDone = items.filter(i => i.Status==='Purchased').length;
+        const storeDone = items.filter(i => isDone(i.Status)).length;
         const allDone   = storeDone === items.length;
         return (
           <div key={key} className="store-section">
@@ -887,7 +900,7 @@ function ShoppingView({ myName = '', saveName }) {
                 return (
                   <button
                     key={item._row}
-                    className={`item-tile${item.Status==='Purchased' ? ' item-tile--done' : ''}${isLoading ? ' item-tile--loading' : ''}`}
+                    className={`item-tile${isDone(item.Status) ? ' item-tile--done' : ''}${isLoading ? ' item-tile--loading' : ''}`}
                     onClick={() => initiateToggle(item)}
                     disabled={pendingRow !== null}
                   >
@@ -897,7 +910,7 @@ function ShoppingView({ myName = '', saveName }) {
                     >✏️</div>
                     {isLoading
                       ? <div className="item-tile-spinner" />
-                      : item.Status==='Purchased' && <div className="item-tile-check">✓</div>
+                      : isDone(item.Status) && <div className="item-tile-check">✓</div>
                     }
                     <div className="item-tile-name">{item.Item}</div>
                     <div className="item-tile-qty">{item.Quantity}</div>
@@ -1254,7 +1267,7 @@ function VolunteersView() {
     if (pendingRow !== null) return;
     setPendingRow(item._row);
     try {
-      const newStatus = item.Status === 'Purchased' ? 'Pending' : 'Purchased';
+      const newStatus = isDone(item.Status) ? 'Pending' : 'Purchased';
       if (USE_MOCK_DATA) {
         const idx = mockState.shopping.findIndex(i => i._row === item._row);
         if (idx !== -1) mockState.shopping[idx].Status = newStatus;
@@ -1275,7 +1288,7 @@ function VolunteersView() {
       </div>
       {(volunteers||[]).map((v,i) => {
         const items = itemsByVolunteer[v.Name] || [];
-        const done  = items.filter(i => i.Status==='Purchased').length;
+        const done  = items.filter(i => isDone(i.Status)).length;
         return (
           <div key={i} className="card">
             <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:items.length>0?12:0}}>
@@ -1302,8 +1315,8 @@ function VolunteersView() {
                     onMouseEnter={e => { if(pendingRow===null) e.currentTarget.style.background='var(--hover,rgba(0,0,0,.04))'; }}
                     onMouseLeave={e => { e.currentTarget.style.background='none'; }}
                   >
-                    <span style={{fontSize:'1rem'}}>{pendingRow===item._row ? '⏳' : item.Status==='Purchased' ? '✅' : '⬜'}</span>
-                    <span style={{flex:1,textDecoration:item.Status==='Purchased'?'line-through':'none',color:item.Status==='Purchased'?'var(--muted)':'var(--text)'}}>
+                    <span style={{fontSize:'1rem'}}>{pendingRow===item._row ? '⏳' : isDone(item.Status) ? '✅' : '⬜'}</span>
+                    <span style={{flex:1,textDecoration:isDone(item.Status)?'line-through':'none',color:isDone(item.Status)?'var(--muted)':'var(--text)'}}>
                       {item.Item}
                     </span>
                     <span style={{color:'var(--muted)',fontSize:'.72rem'}}>{item.Quantity}</span>
@@ -1340,13 +1353,13 @@ function MyView({ myName, saveName }) {
   const mySchedule = React.useMemo(() => (schedule||[]).filter(i => i['Assigned Volunteer'] === myName || i['Assigned Volunteer'] === 'All'), [schedule, myName]);
   const myExpenses = React.useMemo(() => (expenses||[]).filter(e => e.Volunteer === myName), [expenses, myName]);
   const myTotal    = myExpenses.reduce((s, e) => s + (parseFloat(e.Amount)||0), 0);
-  const myDone     = myItems.filter(i => i.Status === 'Purchased').length;
+  const myDone     = myItems.filter(i => isDone(i.Status)).length;
 
   const toggleStatus = async (item) => {
     if (pendingRow !== null) return;
     setPendingRow(item._row);
     try {
-      const newStatus = item.Status === 'Purchased' ? 'Pending' : 'Purchased';
+      const newStatus = isDone(item.Status) ? 'Pending' : 'Purchased';
       if (USE_MOCK_DATA) {
         const idx = mockState.shopping.findIndex(i => i._row === item._row);
         if (idx !== -1) mockState.shopping[idx].Status = newStatus;
@@ -1433,7 +1446,7 @@ function MyView({ myName, saveName }) {
               const isLoading = pendingRow === item._row;
               return (
                 <button key={item._row}
-                  className={`item-tile${item.Status==='Purchased' ? ' item-tile--done' : ''}${isLoading ? ' item-tile--loading' : ''}`}
+                  className={`item-tile${isDone(item.Status) ? ' item-tile--done' : ''}${isLoading ? ' item-tile--loading' : ''}`}
                   onClick={() => toggleStatus(item)}
                   disabled={pendingRow !== null}>
                   <div className="item-tile-edit-btn"
@@ -1442,7 +1455,7 @@ function MyView({ myName, saveName }) {
                   >✏️</div>
                   {isLoading
                     ? <div className="item-tile-spinner" />
-                    : item.Status==='Purchased' && <div className="item-tile-check">✓</div>
+                    : isDone(item.Status) && <div className="item-tile-check">✓</div>
                   }
                   <div className="item-tile-name">{item.Item}</div>
                   <div className="item-tile-qty">{item.Quantity}</div>
