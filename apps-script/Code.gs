@@ -62,8 +62,9 @@ function doPost(e) {
       case 'addSignup':          result = addSignup(body.data);                         break;
       case 'addExpense':         result = addExpense(body.data);                        break;
       case 'addShoppingItem':    result = addShoppingItem(body.data);                  break;
-      case 'updateStatus':       result = updateShoppingStatus(body.id, body.status);  break;
-      case 'updateCost':         result = updateShoppingCost(body.id, body.cost);      break;
+      case 'updateStatus':       result = updateShoppingStatus(body.id, body.status);        break;
+      case 'updateVolunteer':    result = updateShoppingVolunteer(body.id, body.volunteer); break;
+      case 'updateCost':         result = updateShoppingCost(body.id, body.cost);           break;
       case 'updateSchedule':     result = updateScheduleItem(body.row, body.data);     break;
       case 'addScheduleItem':    result = addScheduleItem(body.data);                  break;
       default:                   result = { error: 'Unknown action: ' + action };
@@ -225,6 +226,13 @@ function updateShoppingStatus(id, status) {
   const match = rows.find(r => String(r['ID']) === String(id));
   if (!match) throw new Error('Item not found with ID: ' + id);
   return updateCell(SHEETS.SHOPPING, match._row, 'Status', status);
+}
+
+function updateShoppingVolunteer(id, volunteer) {
+  const rows  = sheetToObjects(SHEETS.SHOPPING);
+  const match = rows.find(r => String(r['ID']) === String(id));
+  if (!match) throw new Error('Item not found with ID: ' + id);
+  return updateCell(SHEETS.SHOPPING, match._row, 'Volunteer', volunteer);
 }
 
 function updateShoppingCost(id, cost) {
