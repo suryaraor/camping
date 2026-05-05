@@ -1490,7 +1490,16 @@ function ExpensesView() {
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Volunteer *</label>
-              <input className="form-input" placeholder="Your name" value={form.Volunteer} onChange={e => setForm({...form,Volunteer:e.target.value})} />
+              {volunteers && volunteers.length > 0 ? (
+                <select className="form-input" value={form.Volunteer} onChange={e => setForm({...form,Volunteer:e.target.value})}>
+                  <option value="">Select volunteer…</option>
+                  {volunteers.map(v => (
+                    <option key={v.Name} value={v.Name}>{v.Name}{v.Family ? ` (${v.Family})` : ''}</option>
+                  ))}
+                </select>
+              ) : (
+                <input className="form-input" placeholder="Your name" value={form.Volunteer} onChange={e => setForm({...form,Volunteer:e.target.value})} />
+              )}
             </div>
             <div className="form-group">
               <label className="form-label">Store</label>
