@@ -1338,6 +1338,7 @@ function ExpensesView() {
     Volunteer:'', Store:'', Item:'', Amount:'', Date: new Date().toISOString().split('T')[0],
     splitFamilies: [], paidFamilies: [], customCounts: {}
   });
+  const [rawCounts, setRawCounts] = React.useState({});
 
   const familyMembersMap = React.useMemo(() => buildFamilyMembers(signups, families), [signups, families]);
 
@@ -1433,6 +1434,7 @@ function ExpensesView() {
     }
 
     setEditExpense(expense);
+    setRawCounts({});
     setEditForm({
       Volunteer: expense.Volunteer || '',
       Store: expense.Store || '',
@@ -2016,15 +2018,25 @@ function ExpensesView() {
                           <div style={{textAlign:'center'}}>
                             {included ? (
                               <input
-                                type="number" min="1" max={String(maxMembers)} value={countVal}
+                                type="number" min="1" max={String(maxMembers)} value={rawCounts[family] !== undefined ? rawCounts[family] : countVal}
                                 onChange={e => {
-                                  const n = parseInt(e.target.value);
-                                  const bounded = Math.max(1, Math.min(maxMembers || 1, isNaN(n) ? 1 : n));
-                                  setEditForm({ ...editForm, customCounts: { ...(editForm.customCounts || {}), [family]: bounded } });
+                                  const raw = e.target.value;
+                                  setRawCounts(prev => ({ ...prev, [family]: raw }));
+                                  const n = parseInt(raw);
+                                  if (!isNaN(n)) {
+                                    const bounded = Math.max(1, Math.min(maxMembers || 1, n));
+                                    setEditForm(prev => ({ ...prev, customCounts: { ...(prev.customCounts || {}), [family]: bounded } }));
+                                  }
                                 }}
                                 style={{width:50,padding:'3px 5px',border:'1.5px solid var(--border)',borderRadius:6,textAlign:'center',fontSize:'.82rem',outline:'none'}}
                                 onFocus={e => { e.target.style.borderColor='var(--green2)'; }}
-                                onBlur={e => { e.target.style.borderColor='var(--border)'; }}
+                                onBlur={e => {
+                                  const n = parseInt(rawCounts[family]);
+                                  const bounded = isNaN(n) ? countVal : Math.max(1, Math.min(maxMembers || 1, n));
+                                  setRawCounts(prev => { const next = { ...prev }; delete next[family]; return next; });
+                                  setEditForm(prev => ({ ...prev, customCounts: { ...(prev.customCounts || {}), [family]: bounded } }));
+                                  e.target.style.borderColor = 'var(--border)';
+                                }}
                               />
                             ) : (
                               <span style={{fontSize:'.8rem',color:'var(--muted)'}}>—</span>
