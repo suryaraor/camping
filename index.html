@@ -1123,13 +1123,18 @@ function calculateSettlements(expenses, volunteers, families, signups) {
     .map(([family]) => family);
   if (!allFamilies.length) return [];
 
+  // Normalized→canonical family name lookup to handle case mismatches across sheets
+  const familyNameMap = {};
+  allFamilies.forEach(f => { familyNameMap[normalizeText(f)] = f; });
+
   // Calculate total spent per family
   const familyPaid = {};
   allFamilies.forEach(f => { familyPaid[f] = 0; });
   expenses.forEach(e => {
     const normName = normalizeText(e.Volunteer || '');
-    const family = volunteerToFamily[normName];
-    if (!family || !familyPaid.hasOwnProperty(family)) return;
+    const rawFamily = volunteerToFamily[normName];
+    const family = rawFamily ? familyNameMap[normalizeText(rawFamily)] : null;
+    if (!family) return;
     familyPaid[family] = (familyPaid[family] || 0) + (parseFloat(e.Amount) || 0);
   });
 
@@ -1220,6 +1225,10 @@ function calculateFamilySplit(expenses, volunteers, families, signups) {
     .filter(([, members]) => members > 0)
     .map(([family]) => family);
 
+  // Normalized→canonical family name lookup to handle case mismatches across sheets
+  const familyNameMap = {};
+  allFamilies.forEach(f => { familyNameMap[normalizeText(f)] = f; });
+
   const familyPaid = {};
   const familyOwes = {};
   allFamilies.forEach(f => { familyPaid[f] = 0; familyOwes[f] = 0; });
@@ -1228,8 +1237,9 @@ function calculateFamilySplit(expenses, volunteers, families, signups) {
     const amount = parseFloat(e.Amount) || 0;
     if (amount <= 0) return;
 
-    const payerFamily = volunteerToFamily[normalizeText(e.Volunteer || '')];
-    if (payerFamily && familyPaid.hasOwnProperty(payerFamily)) {
+    const rawPayerFamily = volunteerToFamily[normalizeText(e.Volunteer || '')];
+    const payerFamily = rawPayerFamily ? familyNameMap[normalizeText(rawPayerFamily)] : null;
+    if (payerFamily) {
       familyPaid[payerFamily] += amount;
     }
 
