@@ -1036,54 +1036,129 @@ function ShoppingView({ myName = '', saveName }) {
 }
 
 // ─── EXPENSE SETTLEMENT ALGORITHM (Splitwise-style) ────────────────────────────
+function parseAppliesFamilies(value) {
+  if (!value) return [];
+  return String(value)
+    .split('|')
+    .map(v => v.trim())
+    .filter(Boolean);
+}
+
+function parseAppliesCounts(value) {
+  const out = {};
+  if (!value) return out;
+  String(value)
+    .split('|')
+    .map(v => v.trim())
+    .filter(Boolean)
+    .forEach(token => {
+      const idx = token.lastIndexOf('::');
+      if (idx <= 0) return;
+      const family = token.slice(0, idx).trim();
+      const count = parseFloat(token.slice(idx + 2));
+      if (!family || !Number.isFinite(count)) return;
+      out[family] = count;
+    });
+  return out;
+}
+
+function buildFamilyMembers(signups, families) {
+  const familyMembers = {};
+  (signups || []).forEach(s => {
+    const fam = String(s.Family || '').trim();
+    if (!fam) return;
+    familyMembers[fam] = (familyMembers[fam] || 0) + (parseInt(s.Members) || 0);
+  });
+  (families || []).forEach(f => {
+    const fam = String(f['Family Name'] || '').trim();
+    if (!fam || familyMembers[fam]) return;
+    familyMembers[fam] = parseInt(f.Members) || 0;
+  });
+  return familyMembers;
+}
+
+function getExpenseWeights(expense, allFamilies, familyMembers) {
+  const selected = parseAppliesFamilies(expense['Applies To Families']).filter(f => familyMembers[f] > 0);
+  const applicableFamilies = selected.length > 0 ? selected : allFamilies;
+  const customCounts = parseAppliesCounts(expense['Applies To Counts']);
+
+  const weights = {};
+  applicableFamilies.forEach(fam => {
+    const members = familyMembers[fam] || 0;
+    if (members <= 0) return;
+    if (customCounts.hasOwnProperty(fam)) {
+      const adjusted = Math.max(0, Math.min(members, customCounts[fam]));
+      weights[fam] = adjusted;
+      return;
+    }
+    weights[fam] = members;
+  });
+
+  let totalWeight = Object.values(weights).reduce((s, v) => s + v, 0);
+  if (totalWeight <= 0) {
+    applicableFamilies.forEach(fam => {
+      const members = familyMembers[fam] || 0;
+      if (members > 0) weights[fam] = members;
+    });
+    totalWeight = Object.values(weights).reduce((s, v) => s + v, 0);
+  }
+
+  return { weights, totalWeight };
+}
+
 function calculateSettlements(expenses, volunteers, families, signups) {
-  if (!expenses?.length || !families?.length) return [];
-  
+  if (!expenses?.length) return [];
+
   // Map volunteer names to families
   const volunteerToFamily = {};
   (volunteers || []).forEach(v => {
     volunteerToFamily[normalizeText(v.Name)] = v.Family;
   });
-  
-  // Calculate total spent per volunteer
-  const volunteerSpent = {};
+
+  // Members per family (prefer signups, fallback to Families sheet)
+  const familyMembers = buildFamilyMembers(signups, families);
+
+  const allFamilies = Object.entries(familyMembers)
+    .filter(([, members]) => members > 0)
+    .map(([family]) => family);
+  if (!allFamilies.length) return [];
+
+  // Calculate total spent per family
+  const familyPaid = {};
+  allFamilies.forEach(f => { familyPaid[f] = 0; });
   expenses.forEach(e => {
     const normName = normalizeText(e.Volunteer || '');
-    if (normName) volunteerSpent[normName] = (volunteerSpent[normName] || 0) + (parseFloat(e.Amount) || 0);
+    const family = volunteerToFamily[normName];
+    if (!family || !familyPaid.hasOwnProperty(family)) return;
+    familyPaid[family] = (familyPaid[family] || 0) + (parseFloat(e.Amount) || 0);
   });
-  
-  // Calculate members per family
-  const familyMembers = {};
-  (signups || []).forEach(s => {
-    const fam = s.Family || '';
-    if (fam) familyMembers[fam] = (familyMembers[fam] || 0) + (parseInt(s.Members) || 0);
-  });
-  
-  // Total cost and per-person cost
-  const totalCost = Object.values(volunteerSpent).reduce((s, v) => s + v, 0);
-  const totalPeople = Object.values(familyMembers).reduce((s, p) => s + p, 0);
-  const costPerPerson = totalPeople > 0 ? totalCost / totalPeople : 0;
-  
-  // Calculate what each family owes
+
+  // Calculate family owed split per expense, honoring "Applies To Families"
   const familyOwes = {};
-  Object.entries(familyMembers).forEach(([family, members]) => {
-    familyOwes[family] = members * costPerPerson;
+  allFamilies.forEach(f => { familyOwes[f] = 0; });
+  expenses.forEach(e => {
+    const amount = parseFloat(e.Amount) || 0;
+    if (amount <= 0) return;
+
+    const { weights, totalWeight } = getExpenseWeights(e, allFamilies, familyMembers);
+    if (totalWeight <= 0) return;
+
+    Object.entries(weights).forEach(([fam, w]) => {
+      familyOwes[fam] += amount * (w / totalWeight);
+    });
   });
-  
+
   // Calculate balances: positive = owed money, negative = owes money
   const balances = {};
-  Object.keys(familyMembers).forEach(fam => {
+  allFamilies.forEach(fam => {
     balances[fam] = 0;
   });
-  
-  // Add what each family paid (via their volunteers)
-  Object.entries(volunteerToFamily).forEach(([normVolName, family]) => {
-    const spent = volunteerSpent[normVolName] || 0;
-    if (balances.hasOwnProperty(family)) {
-      balances[family] = (balances[family] || 0) + spent;
-    }
+
+  // Add what each family paid
+  Object.entries(familyPaid).forEach(([family, spent]) => {
+    balances[family] = (balances[family] || 0) + spent;
   });
-  
+
   // Subtract what each family owes
   Object.entries(familyOwes).forEach(([family, owes]) => {
     balances[family] = (balances[family] || 0) - owes;
@@ -1131,6 +1206,55 @@ function calculateSettlements(expenses, volunteers, families, signups) {
   return settlements;
 }
 
+function calculateFamilySplit(expenses, volunteers, families, signups) {
+  if (!expenses?.length) return [];
+
+  const volunteerToFamily = {};
+  (volunteers || []).forEach(v => {
+    volunteerToFamily[normalizeText(v.Name)] = v.Family;
+  });
+
+  const familyMembers = buildFamilyMembers(signups, families);
+
+  const allFamilies = Object.entries(familyMembers)
+    .filter(([, members]) => members > 0)
+    .map(([family]) => family);
+
+  const familyPaid = {};
+  const familyOwes = {};
+  allFamilies.forEach(f => { familyPaid[f] = 0; familyOwes[f] = 0; });
+
+  expenses.forEach(e => {
+    const amount = parseFloat(e.Amount) || 0;
+    if (amount <= 0) return;
+
+    const payerFamily = volunteerToFamily[normalizeText(e.Volunteer || '')];
+    if (payerFamily && familyPaid.hasOwnProperty(payerFamily)) {
+      familyPaid[payerFamily] += amount;
+    }
+
+    const { weights, totalWeight } = getExpenseWeights(e, allFamilies, familyMembers);
+    if (totalWeight <= 0) return;
+
+    Object.entries(weights).forEach(([fam, w]) => {
+      familyOwes[fam] += amount * (w / totalWeight);
+    });
+  });
+
+  return allFamilies.map(family => {
+    const owed = Math.round(familyOwes[family] * 100) / 100;
+    const paid = Math.round((familyPaid[family] || 0) * 100) / 100;
+    const net = Math.round((paid - owed) * 100) / 100;
+    return {
+      family,
+      members: familyMembers[family] || 0,
+      cost: owed,
+      paid,
+      net,
+    };
+  }).sort((a, b) => b.cost - a.cost);
+}
+
 // ─── EXPENSES ─────────────────────────────────────────────────────────────────
 function ExpensesView() {
   const { data: expenses, loading: exLoading, reload } = useData('getExpenses');
@@ -1139,7 +1263,22 @@ function ExpensesView() {
   const { data: families } = useData('getFamilies');
   const { data: signups } = useData('getSignups');
   const [showAdd, setShowAdd] = React.useState(false);
-  const [form, setForm] = React.useState({ Volunteer:'', Store:'', Item:'', Amount:'', Date: new Date().toISOString().split('T')[0] });
+  const [form, setForm] = React.useState({
+    Volunteer:'', Store:'', Item:'', Amount:'', Date: new Date().toISOString().split('T')[0],
+    appliesToAll: true, selectedFamilies: [], useCustomCounts: false, customCounts: {}
+  });
+
+  const familyMembersMap = React.useMemo(() => buildFamilyMembers(signups, families), [signups, families]);
+
+  const familyOptions = React.useMemo(() => {
+    const fromSignups = new Set((signups || []).map(s => String(s.Family || '').trim()).filter(Boolean));
+    const fromFamilies = (families || []).map(f => String(f['Family Name'] || '').trim()).filter(Boolean);
+    return Array.from(new Set([...fromSignups, ...fromFamilies])).sort((a, b) => a.localeCompare(b));
+  }, [signups, families]);
+
+  const familySplit = React.useMemo(() => {
+    return calculateFamilySplit(expenses, volunteers, families, signups);
+  }, [expenses, volunteers, families, signups]);
 
   // Calculate settlements
   const settlements = React.useMemo(() => {
@@ -1148,10 +1287,38 @@ function ExpensesView() {
 
   const handleAdd = async () => {
     if (!form.Volunteer.trim() || !form.Amount) return;
-    const entry = { ...form, Amount: parseFloat(form.Amount)||0 };
+    const selectedFamilies = form.appliesToAll ? [] : (form.selectedFamilies || []);
+    if (!form.appliesToAll && selectedFamilies.length === 0) return;
+
+    const applicableFamilies = form.appliesToAll ? familyOptions : selectedFamilies;
+    const customCounts = {};
+    if (form.useCustomCounts) {
+      for (const fam of applicableFamilies) {
+        const maxMembers = familyMembersMap[fam] || 0;
+        if (maxMembers <= 0) continue;
+        const raw = parseFloat(form.customCounts?.[fam]);
+        if (!Number.isFinite(raw) || raw <= 0) continue;
+        const value = Math.min(maxMembers, raw);
+        if (value < maxMembers) customCounts[fam] = value;
+      }
+    }
+
+    const entry = {
+      Volunteer: form.Volunteer,
+      Store: form.Store,
+      Item: form.Item,
+      Amount: parseFloat(form.Amount) || 0,
+      Date: form.Date,
+      'Applies To Families': selectedFamilies.join('|'),
+      'Applies To Counts': Object.entries(customCounts).map(([fam, count]) => `${fam}::${count}`).join('|'),
+    };
     if (USE_MOCK_DATA) mockState.expenses.push({ ...entry, _row: mockState.expenses.length+2 });
     await api.post({ action:'addExpense', data: entry });
     setShowAdd(false);
+    setForm({
+      Volunteer:'', Store:'', Item:'', Amount:'', Date: new Date().toISOString().split('T')[0],
+      appliesToAll: true, selectedFamilies: [], useCustomCounts: false, customCounts: {}
+    });
     reload();
   };
 
@@ -1195,17 +1362,23 @@ function ExpensesView() {
         </div>
       )}
 
-      {summary?.familyCosts?.length > 0 && (
+      {familySplit.length > 0 && (
         <div className="card">
           <div className="card-header"><div className="card-title">👨‍👩‍👧‍👦 Cost Split by Family</div></div>
-          {summary.familyCosts.map(f => (
+          {familySplit.map(f => (
             <div key={f.family} className="family-row">
               <div className="family-avatar">🏕️</div>
               <div>
                 <div style={{fontWeight:600}}>{f.family}</div>
                 <div style={{fontSize:'.78rem',color:'var(--muted)'}}>{f.members} members</div>
               </div>
-              <div className="family-cost">${f.cost.toFixed(2)}</div>
+              <div style={{textAlign:'right', marginLeft:'auto'}}>
+                <div className="family-cost">${f.cost.toFixed(2)}</div>
+                <div style={{fontSize:'.72rem',color:'var(--muted)'}}>paid ${f.paid.toFixed(2)}</div>
+                <div style={{fontSize:'.74rem',fontWeight:700,color:f.net >= 0 ? '#16a34a' : '#e76f51'}}>
+                  {f.net >= 0 ? `gets $${Math.abs(f.net).toFixed(2)}` : `owes $${Math.abs(f.net).toFixed(2)}`}
+                </div>
+              </div>
             </div>
           ))}
         </div>
@@ -1274,7 +1447,7 @@ function ExpensesView() {
         <div style={{overflowX:'auto'}}>
           <table className="expense-table">
             <thead>
-              <tr><th>Volunteer</th><th>Store</th><th>Item</th><th>Amount</th><th>Date</th></tr>
+              <tr><th>Volunteer</th><th>Store</th><th>Item</th><th>Applies To</th><th>Amount</th><th>Date</th></tr>
             </thead>
             <tbody>
               {(expenses||[]).map((e,i) => (
@@ -1282,12 +1455,20 @@ function ExpensesView() {
                   <td style={{fontWeight:600}}>{e.Volunteer}</td>
                   <td><span className="store-tag">{e.Store}</span></td>
                   <td>{e.Item}</td>
+                  <td style={{color:'var(--muted)',fontSize:'.78rem'}}>
+                    {e['Applies To Families'] ? String(e['Applies To Families']).split('|').join(', ') : 'All families'}
+                    {e['Applies To Counts'] && (
+                      <div style={{fontSize:'.72rem',marginTop:2}}>
+                        weighted: {String(e['Applies To Counts']).split('|').map(v => v.replace('::', ': ')).join(', ')}
+                      </div>
+                    )}
+                  </td>
                   <td style={{fontWeight:700,color:'var(--green)'}}>${Number(e.Amount).toFixed(2)}</td>
                   <td style={{color:'var(--muted)'}}>{e.Date}</td>
                 </tr>
               ))}
               {(!expenses || expenses.length===0) && (
-                <tr><td colSpan={5} style={{textAlign:'center',color:'var(--muted)',padding:'24px'}}>No expenses logged yet</td></tr>
+                <tr><td colSpan={6} style={{textAlign:'center',color:'var(--muted)',padding:'24px'}}>No expenses logged yet</td></tr>
               )}
             </tbody>
           </table>
@@ -1310,6 +1491,108 @@ function ExpensesView() {
             <label className="form-label">Item(s) Purchased</label>
             <input className="form-input" placeholder="What did you buy?" value={form.Item} onChange={e => setForm({...form,Item:e.target.value})} />
           </div>
+          <div className="form-group">
+            <label className="form-label">Who should split this item?</label>
+            <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'.84rem',marginBottom:8,cursor:'pointer'}}>
+              <input
+                type="checkbox"
+                checked={form.appliesToAll}
+                onChange={e => setForm({
+                  ...form,
+                  appliesToAll: e.target.checked,
+                  selectedFamilies: e.target.checked ? [] : form.selectedFamilies,
+                })}
+              />
+              Apply to all families
+            </label>
+            {!form.appliesToAll && (
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,padding:'10px',border:'1px solid var(--border)',borderRadius:8,maxHeight:150,overflowY:'auto'}}>
+                {familyOptions.map(family => {
+                  const checked = form.selectedFamilies.includes(family);
+                  return (
+                    <label key={family} style={{display:'flex',alignItems:'center',gap:6,fontSize:'.82rem',cursor:'pointer'}}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={e => {
+                          const next = e.target.checked
+                            ? [...form.selectedFamilies, family]
+                            : form.selectedFamilies.filter(f => f !== family);
+                          const nextCounts = { ...(form.customCounts || {}) };
+                          if (e.target.checked) {
+                            if (!nextCounts.hasOwnProperty(family)) nextCounts[family] = familyMembersMap[family] || 1;
+                          } else {
+                            delete nextCounts[family];
+                          }
+                          setForm({ ...form, selectedFamilies: next, customCounts: nextCounts });
+                        }}
+                      />
+                      {family}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            {!form.appliesToAll && form.selectedFamilies.length === 0 && (
+              <div style={{fontSize:'.74rem',color:'#b45309',marginTop:6}}>Select at least one family for this item.</div>
+            )}
+            <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'.84rem',marginTop:10,cursor:'pointer'}}>
+              <input
+                type="checkbox"
+                checked={form.useCustomCounts}
+                onChange={e => {
+                  const checked = e.target.checked;
+                  if (!checked) {
+                    setForm({ ...form, useCustomCounts: false });
+                    return;
+                  }
+                  const familiesForCounts = form.appliesToAll ? familyOptions : form.selectedFamilies;
+                  const nextCounts = { ...(form.customCounts || {}) };
+                  familiesForCounts.forEach(fam => {
+                    if (!nextCounts.hasOwnProperty(fam)) nextCounts[fam] = familyMembersMap[fam] || 1;
+                  });
+                  setForm({ ...form, useCustomCounts: true, customCounts: nextCounts });
+                }}
+              />
+              Use custom participant count per family
+            </label>
+            {form.useCustomCounts && (
+              <div style={{marginTop:10,padding:'10px',border:'1px solid var(--border)',borderRadius:8}}>
+                <div style={{fontSize:'.76rem',color:'var(--muted)',marginBottom:8}}>
+                  Default is full family size. Reduce counts for this expense where needed.
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 90px 90px',gap:8,alignItems:'center'}}>
+                  <div style={{fontSize:'.72rem',fontWeight:700,color:'var(--muted)'}}>Family</div>
+                  <div style={{fontSize:'.72rem',fontWeight:700,color:'var(--muted)'}}>Members</div>
+                  <div style={{fontSize:'.72rem',fontWeight:700,color:'var(--muted)'}}>Split Count</div>
+                  {(form.appliesToAll ? familyOptions : form.selectedFamilies).map(fam => {
+                    const maxMembers = familyMembersMap[fam] || 0;
+                    const val = form.customCounts?.[fam] ?? maxMembers;
+                    return (
+                      <React.Fragment key={fam}>
+                        <div style={{fontSize:'.82rem'}}>{fam}</div>
+                        <div style={{fontSize:'.8rem',color:'var(--muted)'}}>{maxMembers}</div>
+                        <input
+                          className="form-input"
+                          type="number"
+                          min="1"
+                          max={String(Math.max(1, maxMembers))}
+                          step="1"
+                          value={val}
+                          onChange={e => {
+                            const n = parseInt(e.target.value) || 1;
+                            const bounded = Math.max(1, Math.min(maxMembers || 1, n));
+                            setForm({ ...form, customCounts: { ...(form.customCounts || {}), [fam]: bounded } });
+                          }}
+                          style={{padding:'6px 8px',fontSize:'.8rem'}}
+                        />
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Amount ($) *</label>
@@ -1322,7 +1605,7 @@ function ExpensesView() {
           </div>
           <div className="modal-actions">
             <button className="btn btn-outline" onClick={() => setShowAdd(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={handleAdd}>Log Expense</button>
+            <button className="btn btn-primary" onClick={handleAdd} disabled={!form.appliesToAll && form.selectedFamilies.length===0}>Log Expense</button>
           </div>
         </Modal>
       )}

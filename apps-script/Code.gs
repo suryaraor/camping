@@ -202,9 +202,25 @@ function addSignup(data) {
 }
 
 function addExpense(data) {
-  const headers = ['Volunteer', 'Store', 'Item', 'Amount', 'Receipt', 'Date'];
+  const headers = ['Volunteer', 'Store', 'Item', 'Amount', 'Receipt', 'Date', 'Applies To Families', 'Applies To Counts'];
+  ensureColumnExists(SHEETS.EXPENSES, 'Applies To Families');
+  ensureColumnExists(SHEETS.EXPENSES, 'Applies To Counts');
   data['Date'] = data['Date'] || new Date().toISOString().split('T')[0];
+  data['Applies To Families'] = data['Applies To Families'] || '';
+  data['Applies To Counts'] = data['Applies To Counts'] || '';
   return appendRow(SHEETS.EXPENSES, headers, data);
+}
+
+function ensureColumnExists(sheetName, colName) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) throw new Error('Sheet not found: ' + sheetName);
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(h => String(h).trim());
+  if (headers.includes(colName)) return;
+
+  const nextCol = headers.length + 1;
+  sheet.getRange(1, nextCol).setValue(colName).setFontWeight('bold');
 }
 
 function addShoppingItem(data) {
@@ -269,7 +285,7 @@ function setupSheetHeaders() {
     'ShoppingList': ['ID', 'Meal', 'Category', 'Item', 'Quantity', 'Store', 'Volunteer', 'Status', 'Cost'],
     'Volunteers':   ['Name', 'Family', 'Assigned Store', 'Phone'],
     'Families':     ['Family Name', 'Members', 'Contact', 'Email'],
-    'Expenses':     ['Volunteer', 'Store', 'Item', 'Amount', 'Receipt', 'Date'],
+    'Expenses':     ['Volunteer', 'Store', 'Item', 'Amount', 'Receipt', 'Date', 'Applies To Families', 'Applies To Counts'],
     'Signups':      ['Name', 'Family', 'Members', 'Nights', 'Email', 'Dietary Notes', 'Signed Up At'],
   };
 
