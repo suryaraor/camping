@@ -422,8 +422,11 @@ async function rawPost(body) {
     await new Promise(r => setTimeout(r, 180));
     return { ok: true };
   }
+  console.log('[rawPost] → action:', body.action, '| full body:', body);
   const res  = await fetch(APPS_SCRIPT_URL, { method:'POST', body: JSON.stringify(body) });
+  console.log('[rawPost] HTTP status:', res.status, res.statusText);
   const json = await res.json();
+  console.log('[rawPost] ← response JSON:', json);
   if (!json.success) throw new Error(json.error);
   return json.data;
 }
@@ -1378,9 +1381,15 @@ function ExpensesView() {
 
   const openEditExpense = React.useCallback((expense) => {
     if (!expense) return;
+    console.log('[EditExpense] Opening edit for row', expense._row, expense);
+    console.log('[EditExpense] familyOptions at open time:', familyOptions);
+
     const selectedSplit = parseAppliesFamilies(expense['Applies To Families']);
     const defaultSplit = selectedSplit.length > 0 ? selectedSplit : [...familyOptions];
     const parsedCounts = parseAppliesCounts(expense['Applies To Counts']);
+    console.log('[EditExpense] Applies To Families raw:', expense['Applies To Families'], '→ parsed:', selectedSplit);
+    console.log('[EditExpense] Applies To Counts raw:', expense['Applies To Counts'], '→ parsed:', parsedCounts);
+
     const manualPaid = parseAppliesFamilies(expense['Paid By Families']);
     const defaultPaid = manualPaid.length > 0
       ? manualPaid
@@ -1388,6 +1397,14 @@ function ExpensesView() {
           const fam = volunteerToFamily[normalizeText(expense.Volunteer || '')];
           return fam ? [fam] : [];
         })();
+    console.log('[EditExpense] Paid By Families raw:', expense['Paid By Families'], '→ resolved:', defaultPaid);
+
+    const finalSplitFamilies = defaultSplit.filter(f => familyOptions.includes(f));
+    const finalPaidFamilies  = defaultPaid.filter(f => familyOptions.includes(f));
+    console.log('[EditExpense] defaultSplit:', defaultSplit, '| after familyOptions filter:', finalSplitFamilies);
+    if (defaultSplit.length > 0 && finalSplitFamilies.length === 0) {
+      console.warn('[EditExpense] ⚠️ splitFamilies filtered to empty — familyOptions may not be loaded yet. splitFamilies will be empty in editForm!');
+    }
 
     setEditExpense(expense);
     setEditForm({
@@ -1396,10 +1413,11 @@ function ExpensesView() {
       Item: expense.Item || '',
       Amount: expense.Amount === undefined || expense.Amount === null ? '' : String(expense.Amount),
       Date: toDateStr(expense.Date) || new Date().toISOString().split('T')[0],
-      splitFamilies: defaultSplit.filter(f => familyOptions.includes(f)),
+      splitFamilies: finalSplitFamilies,
       customCounts: parsedCounts,
-      paidFamilies: defaultPaid.filter(f => familyOptions.includes(f)),
+      paidFamilies: finalPaidFamilies,
     });
+    console.log('[EditExpense] editForm initialised:', { splitFamilies: finalSplitFamilies, paidFamilies: finalPaidFamilies, parsedCounts });
   }, [familyOptions, volunteerToFamily]);
 
   const toggleFamilyValue = (field, family, checked) => {
@@ -1418,13 +1436,25 @@ function ExpensesView() {
   };
 
   const handleSaveEdit = async () => {
-    if (!editExpense) return;
+    console.log('[SaveEdit] Save triggered. editExpense:', editExpense?._row, '| editForm:', editForm);
+
+    if (!editExpense) {
+      console.error('[SaveEdit] ❌ Aborted — editExpense is null');
+      return;
+    }
+
     const amount = parseFloat(editForm.Amount);
-    if (!Number.isFinite(amount) || amount <= 0) return;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      console.error('[SaveEdit] ❌ Aborted — invalid amount:', editForm.Amount, '→ parsed:', amount);
+      return;
+    }
+    console.log('[SaveEdit] ✔ Amount valid:', amount);
 
     // Use editForm values directly — don't re-filter by familyOptions (family data may not be loaded yet)
     const splitFamilies = Array.from(new Set(editForm.splitFamilies || []));
     const paidFamilies  = Array.from(new Set(editForm.paidFamilies  || []));
+    console.log('[SaveEdit] splitFamilies:', splitFamilies, '| paidFamilies:', paidFamilies);
+    console.log('[SaveEdit] familyOptions at save time:', familyOptions);
 
     const customCounts = {};
     splitFamilies.forEach(fam => {
@@ -1434,12 +1464,14 @@ function ExpensesView() {
         customCounts[fam] = val;
       }
     });
+    console.log('[SaveEdit] customCounts:', customCounts);
 
     // Empty Applies To Families means "applies to all" — only set it when the split is restricted
     const allKnownFamilies = familyOptions.length > 0 ? familyOptions : splitFamilies;
     const isFullSplit = splitFamilies.length === 0
       || (allKnownFamilies.length > 0 && splitFamilies.length === allKnownFamilies.length && Object.keys(customCounts).length === 0);
     const appliesToFamilies = isFullSplit ? '' : splitFamilies.join('|');
+    console.log('[SaveEdit] isFullSplit:', isFullSplit, '| appliesToFamilies:', appliesToFamilies || '(empty = all)');
 
     const payload = {
       Volunteer: editForm.Volunteer,
@@ -1451,20 +1483,33 @@ function ExpensesView() {
       'Applies To Counts': Object.entries(customCounts).map(([fam, count]) => `${fam}::${count}`).join('|'),
       'Paid By Families': paidFamilies.join('|'),
     };
+    console.log('[SaveEdit] Payload to send:', payload);
+    console.log('[SaveEdit] Target sheet row:', editExpense._row);
 
     setSavingEdit(true);
     try {
       if (USE_MOCK_DATA) {
+        console.log('[SaveEdit] Mock mode — updating local mockState');
         mockState.expenses = (mockState.expenses || []).map(e =>
           e._row === editExpense._row ? { ...e, ...payload } : e
         );
       }
+
+      console.log('[SaveEdit] Applying optimistic UI update...');
       setExpensesData(prev => (prev || []).map(e => e._row === editExpense._row ? { ...e, ...payload } : e));
-      await api.post({ action: 'updateExpense', row: editExpense._row, data: payload });
+
+      console.log('[SaveEdit] Calling api.post updateExpense...');
+      const result = await api.post({ action: 'updateExpense', row: editExpense._row, data: payload });
+      console.log('[SaveEdit] ✅ api.post response:', result);
+
       setEditExpense(null);
+      console.log('[SaveEdit] Reloading expenses from server...');
       reload();
+    } catch (err) {
+      console.error('[SaveEdit] ❌ api.post failed:', err);
     } finally {
       setSavingEdit(false);
+      console.log('[SaveEdit] Done (savingEdit reset)');
     }
   };
 
