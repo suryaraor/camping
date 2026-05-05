@@ -1035,12 +1035,116 @@ function ShoppingView({ myName = '', saveName }) {
   );
 }
 
+// ─── EXPENSE SETTLEMENT ALGORITHM (Splitwise-style) ────────────────────────────
+function calculateSettlements(expenses, volunteers, families, signups) {
+  if (!expenses?.length || !families?.length) return [];
+  
+  // Map volunteer names to families
+  const volunteerToFamily = {};
+  (volunteers || []).forEach(v => {
+    volunteerToFamily[normalizeText(v.Name)] = v.Family;
+  });
+  
+  // Calculate total spent per volunteer
+  const volunteerSpent = {};
+  expenses.forEach(e => {
+    const normName = normalizeText(e.Volunteer || '');
+    if (normName) volunteerSpent[normName] = (volunteerSpent[normName] || 0) + (parseFloat(e.Amount) || 0);
+  });
+  
+  // Calculate members per family
+  const familyMembers = {};
+  (signups || []).forEach(s => {
+    const fam = s.Family || '';
+    if (fam) familyMembers[fam] = (familyMembers[fam] || 0) + (parseInt(s.Members) || 0);
+  });
+  
+  // Total cost and per-person cost
+  const totalCost = Object.values(volunteerSpent).reduce((s, v) => s + v, 0);
+  const totalPeople = Object.values(familyMembers).reduce((s, p) => s + p, 0);
+  const costPerPerson = totalPeople > 0 ? totalCost / totalPeople : 0;
+  
+  // Calculate what each family owes
+  const familyOwes = {};
+  Object.entries(familyMembers).forEach(([family, members]) => {
+    familyOwes[family] = members * costPerPerson;
+  });
+  
+  // Calculate balances: positive = owed money, negative = owes money
+  const balances = {};
+  Object.keys(familyMembers).forEach(fam => {
+    balances[fam] = 0;
+  });
+  
+  // Add what each family paid (via their volunteers)
+  Object.entries(volunteerToFamily).forEach(([normVolName, family]) => {
+    const spent = volunteerSpent[normVolName] || 0;
+    if (balances.hasOwnProperty(family)) {
+      balances[family] = (balances[family] || 0) + spent;
+    }
+  });
+  
+  // Subtract what each family owes
+  Object.entries(familyOwes).forEach(([family, owes]) => {
+    balances[family] = (balances[family] || 0) - owes;
+  });
+  
+  // Separate debtors and creditors
+  const debtors = [];  // families that owe money (balance < 0)
+  const creditors = []; // families that are owed money (balance > 0)
+  
+  Object.entries(balances).forEach(([family, balance]) => {
+    const roundedBalance = Math.round(balance * 100) / 100;
+    if (roundedBalance < -0.01) {
+      debtors.push({ family, amount: Math.abs(roundedBalance) });
+    } else if (roundedBalance > 0.01) {
+      creditors.push({ family, amount: roundedBalance });
+    }
+  });
+  
+  // Sort by amount (largest first) for better settlement matching
+  debtors.sort((a, b) => b.amount - a.amount);
+  creditors.sort((a, b) => b.amount - a.amount);
+  
+  // Greedy algorithm to match debtors with creditors
+  const settlements = [];
+  let i = 0, j = 0;
+  
+  while (i < debtors.length && j < creditors.length) {
+    const debtor = debtors[i];
+    const creditor = creditors[j];
+    const amount = Math.min(debtor.amount, creditor.amount);
+    
+    settlements.push({
+      from: debtor.family,
+      to: creditor.family,
+      amount: Math.round(amount * 100) / 100,
+    });
+    
+    debtor.amount -= amount;
+    creditor.amount -= amount;
+    
+    if (debtor.amount < 0.01) i++;
+    if (creditor.amount < 0.01) j++;
+  }
+  
+  return settlements;
+}
+
 // ─── EXPENSES ─────────────────────────────────────────────────────────────────
 function ExpensesView() {
   const { data: expenses, loading: exLoading, reload } = useData('getExpenses');
   const { data: summary,  loading: sumLoading }        = useData('getSummary');
+  const { data: volunteers } = useData('getVolunteers');
+  const { data: families } = useData('getFamilies');
+  const { data: signups } = useData('getSignups');
   const [showAdd, setShowAdd] = React.useState(false);
   const [form, setForm] = React.useState({ Volunteer:'', Store:'', Item:'', Amount:'', Date: new Date().toISOString().split('T')[0] });
+
+  // Calculate settlements
+  const settlements = React.useMemo(() => {
+    return calculateSettlements(expenses, volunteers, families, signups);
+  }, [expenses, volunteers, families, signups]);
 
   const handleAdd = async () => {
     if (!form.Volunteer.trim() || !form.Amount) return;
@@ -1104,6 +1208,64 @@ function ExpensesView() {
               <div className="family-cost">${f.cost.toFixed(2)}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {settlements.length > 0 && (
+        <div className="card">
+          <div className="card-header" style={{marginBottom:'16px'}}>
+            <div className="card-title">💸 Settlement Plan (Minimized Transfers)</div>
+            <div style={{fontSize:'.75rem',background:'#f0fdf4',color:'#16a34a',padding:'4px 10px',borderRadius:'12px',fontWeight:600}}>
+              {settlements.length} {settlements.length === 1 ? 'transfer' : 'transfers'}
+            </div>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+            {settlements.map((s, i) => (
+              <div key={i} style={{
+                display:'flex',
+                alignItems:'center',
+                gap:12,
+                padding:'12px 14px',
+                background:'linear-gradient(135deg, rgba(45,106,79,.04) 0%, rgba(116,198,157,.04) 100%)',
+                borderRadius:'10px',
+                border:'1px solid var(--border)',
+              }}>
+                <div style={{flex:1}}>
+                  <div style={{fontWeight:600,fontSize:'.95rem'}}>
+                    <span style={{color:'var(--green)'}}>{s.from}</span>
+                    <span style={{color:'var(--muted)',margin:'0 6px'}}>→</span>
+                    <span style={{color:'var(--green)'}}>{s.to}</span>
+                  </div>
+                  <div style={{fontSize:'.75rem',color:'var(--muted)',marginTop:2}}>
+                    {s.from} transfers to {s.to}
+                  </div>
+                </div>
+                <div style={{
+                  fontSize:'1.15rem',
+                  fontWeight:800,
+                  color:'var(--green)',
+                  whiteSpace:'nowrap',
+                  padding:'6px 12px',
+                  background:'rgba(116,198,157,.15)',
+                  borderRadius:'8px',
+                }}>
+                  ${s.amount.toFixed(2)}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{
+            marginTop:'14px',
+            padding:'10px 12px',
+            background:'#f8f9fa',
+            borderRadius:'8px',
+            fontSize:'.8rem',
+            color:'var(--muted)',
+            textAlign:'center',
+            fontStyle:'italic',
+          }}>
+            💡 This is the minimum number of transfers needed to settle all expenses
+          </div>
         </div>
       )}
 
