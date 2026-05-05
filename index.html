@@ -528,6 +528,15 @@ const MEAL_COLORS  = { Breakfast:'#fef9c3', Lunch:'#dcfce7', Dinner:'#fee2e2', A
 
 const normalizeText = value => String(value ?? '').trim().toLowerCase();
 
+// Google Sheets can return dates as full ISO timestamps — strip to yyyy-MM-dd
+const toDateStr = value => {
+  if (!value) return '';
+  const s = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  return isNaN(d) ? '' : d.toISOString().split('T')[0];
+};
+
 // Treat both app and sheet variants like "Purchased ", "purchased", and "Done" as complete
 const isDone = status => {
   const s = normalizeText(status);
@@ -1386,7 +1395,7 @@ function ExpensesView() {
       Store: expense.Store || '',
       Item: expense.Item || '',
       Amount: expense.Amount === undefined || expense.Amount === null ? '' : String(expense.Amount),
-      Date: expense.Date || new Date().toISOString().split('T')[0],
+      Date: toDateStr(expense.Date) || new Date().toISOString().split('T')[0],
       splitFamilies: defaultSplit.filter(f => familyOptions.includes(f)),
       customCounts: parsedCounts,
       paidFamilies: defaultPaid.filter(f => familyOptions.includes(f)),
@@ -1600,7 +1609,7 @@ function ExpensesView() {
                     )}
                   </td>
                   <td style={{fontWeight:700,color:'var(--green)'}}>${Number(e.Amount).toFixed(2)}</td>
-                  <td style={{color:'var(--muted)'}}>{e.Date}</td>
+                  <td style={{color:'var(--muted)'}}>{toDateStr(e.Date)}</td>
                   <td style={{color:'var(--muted)',fontSize:'.75rem',whiteSpace:'nowrap'}}>✏️</td>
                 </tr>
               ))}
@@ -2273,7 +2282,7 @@ function MyView({ myName, saveName }) {
             <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom: i < myExpenses.length-1 ? '1px solid var(--border)' : 'none'}}>
               <div>
                 <div style={{fontWeight:600,fontSize:'.85rem'}}>{e.Item}</div>
-                <div style={{fontSize:'.73rem',color:'var(--muted)'}}>{e.Store} · {e.Date}</div>
+                <div style={{fontSize:'.73rem',color:'var(--muted)'}}>{e.Store} · {toDateStr(e.Date)}</div>
               </div>
               <div style={{fontWeight:700,color:'var(--green)'}}>${Number(e.Amount).toFixed(2)}</div>
             </div>
