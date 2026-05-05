@@ -1422,9 +1422,9 @@ function ExpensesView() {
     const amount = parseFloat(editForm.Amount);
     if (!Number.isFinite(amount) || amount <= 0) return;
 
-    const splitFamilies = Array.from(new Set((editForm.splitFamilies || []).filter(f => familyOptions.includes(f))));
-    if (splitFamilies.length === 0) return;
-    const paidFamilies = Array.from(new Set((editForm.paidFamilies || []).filter(f => familyOptions.includes(f))));
+    // Use editForm values directly — don't re-filter by familyOptions (family data may not be loaded yet)
+    const splitFamilies = Array.from(new Set(editForm.splitFamilies || []));
+    const paidFamilies  = Array.from(new Set(editForm.paidFamilies  || []));
 
     const customCounts = {};
     splitFamilies.forEach(fam => {
@@ -1435,9 +1435,11 @@ function ExpensesView() {
       }
     });
 
-    const appliesToFamilies = splitFamilies.length === familyOptions.length && Object.keys(customCounts).length === 0
-      ? ''
-      : splitFamilies.join('|');
+    // Empty Applies To Families means "applies to all" — only set it when the split is restricted
+    const allKnownFamilies = familyOptions.length > 0 ? familyOptions : splitFamilies;
+    const isFullSplit = splitFamilies.length === 0
+      || (allKnownFamilies.length > 0 && splitFamilies.length === allKnownFamilies.length && Object.keys(customCounts).length === 0);
+    const appliesToFamilies = isFullSplit ? '' : splitFamilies.join('|');
 
     const payload = {
       Volunteer: editForm.Volunteer,
@@ -1920,7 +1922,7 @@ function ExpensesView() {
           <div className="modal-actions">
             <button className="btn btn-outline" onClick={() => setEditExpense(null)} disabled={savingEdit}>Cancel</button>
             <button className="btn btn-primary" onClick={handleSaveEdit}
-              disabled={savingEdit || (editForm.splitFamilies || []).length === 0}>
+              disabled={savingEdit || (familyOptions.length > 0 && (editForm.splitFamilies || []).length === 0)}>
               {savingEdit ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
