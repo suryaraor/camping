@@ -1298,6 +1298,27 @@ function calculateFamilySplit(expenses, volunteers, families, signups) {
   }).sort((a, b) => b.cost - a.cost);
 }
 
+function computeFamilyExpenseBreakdown(familyName, expenses, volunteers, families, signups) {
+  if (!expenses?.length || !familyName) return [];
+
+  const volunteerToFamily = {};
+  (volunteers || []).forEach(v => { volunteerToFamily[normalizeText(v.Name)] = v.Family; });
+
+  const familyMembers = buildFamilyMembers(signups, families);
+  const allFamilies = Object.entries(familyMembers).filter(([, m]) => m > 0).map(([f]) => f);
+
+  return expenses
+    .map(e => {
+      const amount = parseFloat(e.Amount) || 0;
+      if (amount <= 0) return null;
+      const { weights, totalWeight } = getExpenseWeights(e, allFamilies, familyMembers);
+      const portionCount = weights[familyName] || 0;
+      if (portionCount <= 0) return null;
+      return { expense: e, portionCount, totalPortionCount: totalWeight, familyShare: amount * (portionCount / totalWeight) };
+    })
+    .filter(Boolean);
+}
+
 // ─── EXPENSES ─────────────────────────────────────────────────────────────────
 function ExpensesView() {
   const { data: expenses, loading: exLoading, reload, setData: setExpensesData } = useData('getExpenses');
@@ -1308,6 +1329,7 @@ function ExpensesView() {
   const [showAdd, setShowAdd] = React.useState(false);
   const [editExpense, setEditExpense] = React.useState(null);
   const [savingEdit, setSavingEdit] = React.useState(false);
+  const [selectedFamily, setSelectedFamily] = React.useState(null);
   const [form, setForm] = React.useState({
     Volunteer:'', Store:'', Item:'', Amount:'', Date: new Date().toISOString().split('T')[0],
     appliesToAll: true, selectedFamilies: [], useCustomCounts: false, customCounts: {}
@@ -1336,6 +1358,10 @@ function ExpensesView() {
   const familySplit = React.useMemo(() => {
     return calculateFamilySplit(expenses, volunteers, families, signups);
   }, [expenses, volunteers, families, signups]);
+
+  const familyBreakdown = React.useMemo(() => {
+    return computeFamilyExpenseBreakdown(selectedFamily, expenses, volunteers, families, signups);
+  }, [selectedFamily, expenses, volunteers, families, signups]);
 
   // Calculate settlements
   const settlements = React.useMemo(() => {
@@ -1555,9 +1581,13 @@ function ExpensesView() {
 
       {familySplit.length > 0 && (
         <div className="card">
-          <div className="card-header"><div className="card-title">👨‍👩‍👧‍👦 Cost Split by Family</div></div>
+          <div className="card-header">
+            <div className="card-title">👨‍👩‍👧‍👦 Cost Split by Family</div>
+            <div style={{fontSize:'.72rem',color:'var(--muted)'}}>Tap a row to see breakdown</div>
+          </div>
           {familySplit.map(f => (
-            <div key={f.family} className="family-row">
+            <div key={f.family} className="family-row" onClick={() => setSelectedFamily(f.family)}
+              style={{cursor:'pointer'}} title="Click to see expense breakdown">
               <div className="family-avatar">🏕️</div>
               <div>
                 <div style={{fontWeight:600}}>{f.family}</div>
@@ -1570,9 +1600,60 @@ function ExpensesView() {
                   {f.net >= 0 ? `gets $${Math.abs(f.net).toFixed(2)}` : `owes $${Math.abs(f.net).toFixed(2)}`}
                 </div>
               </div>
+              <div style={{marginLeft:8,color:'var(--muted)',fontSize:'1rem'}}>›</div>
             </div>
           ))}
         </div>
+      )}
+
+      {selectedFamily && (
+        <Modal title={`📋 ${selectedFamily} — Expense Breakdown`} onClose={() => setSelectedFamily(null)}>
+          {familyBreakdown.length === 0
+            ? <div style={{color:'var(--muted)',textAlign:'center',padding:'20px 0'}}>No expenses found for this family.</div>
+            : (
+              <div style={{display:'flex',flexDirection:'column',gap:0}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr auto auto auto',gap:'6px 10px',
+                  fontSize:'.7rem',fontWeight:700,color:'var(--muted)',textTransform:'uppercase',
+                  letterSpacing:'.05em',padding:'0 0 8px',borderBottom:'2px solid var(--border)'}}>
+                  <span>Item / Store</span>
+                  <span style={{textAlign:'right'}}>Total</span>
+                  <span style={{textAlign:'right'}}>Portions</span>
+                  <span style={{textAlign:'right'}}>Your Share</span>
+                </div>
+                {familyBreakdown.map(({ expense: e, portionCount, totalPortionCount, familyShare }, i) => (
+                  <div key={i} style={{display:'grid',gridTemplateColumns:'1fr auto auto auto',gap:'6px 10px',
+                    padding:'10px 0',borderBottom:'1px solid var(--border)',alignItems:'start'}}>
+                    <div>
+                      <div style={{fontWeight:600,fontSize:'.85rem'}}>{e.Item || '—'}</div>
+                      <div style={{fontSize:'.72rem',color:'var(--muted)'}}>{e.Store} · {e.Volunteer}</div>
+                      {e.Date && <div style={{fontSize:'.68rem',color:'var(--muted)'}}>{e.Date}</div>}
+                    </div>
+                    <div style={{textAlign:'right',fontWeight:600,fontSize:'.85rem',whiteSpace:'nowrap'}}>
+                      ${(parseFloat(e.Amount)||0).toFixed(2)}
+                    </div>
+                    <div style={{textAlign:'right',fontSize:'.82rem',color:'var(--muted)',whiteSpace:'nowrap'}}>
+                      {portionCount}/{totalPortionCount}
+                    </div>
+                    <div style={{textAlign:'right',fontWeight:700,fontSize:'.85rem',color:'var(--green)',whiteSpace:'nowrap'}}>
+                      ${familyShare.toFixed(2)}
+                    </div>
+                  </div>
+                ))}
+                <div style={{display:'grid',gridTemplateColumns:'1fr auto auto auto',gap:'6px 10px',
+                  padding:'12px 0 0',fontWeight:700,fontSize:'.9rem'}}>
+                  <span>Total</span>
+                  <span style={{textAlign:'right'}}>
+                    ${familyBreakdown.reduce((s,r) => s+(parseFloat(r.expense.Amount)||0),0).toFixed(2)}
+                  </span>
+                  <span></span>
+                  <span style={{textAlign:'right',color:'var(--green)'}}>
+                    ${familyBreakdown.reduce((s,r) => s+r.familyShare,0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            )
+          }
+        </Modal>
       )}
 
       {settlements.length > 0 && (
