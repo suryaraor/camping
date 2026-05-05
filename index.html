@@ -1361,7 +1361,8 @@ function ExpensesView() {
   }, [expenses, volunteers, families, signups]);
 
   const familyBreakdown = React.useMemo(() => {
-    return computeFamilyExpenseBreakdown(selectedFamily, expenses, volunteers, families, signups);
+    return computeFamilyExpenseBreakdown(selectedFamily, expenses, volunteers, families, signups)
+      .sort((a, b) => b.familyShare - a.familyShare);
   }, [selectedFamily, expenses, volunteers, families, signups]);
 
   // Calculate settlements
