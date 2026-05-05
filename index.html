@@ -1288,7 +1288,7 @@ function calculateFamilySplit(expenses, volunteers, families, signups) {
 
 // ─── EXPENSES ─────────────────────────────────────────────────────────────────
 function ExpensesView() {
-  const { data: expenses, loading: exLoading, reload } = useData('getExpenses');
+  const { data: expenses, loading: exLoading, reload, setData: setExpensesData } = useData('getExpenses');
   const { data: summary,  loading: sumLoading }        = useData('getSummary');
   const { data: volunteers } = useData('getVolunteers');
   const { data: families } = useData('getFamilies');
@@ -1302,7 +1302,7 @@ function ExpensesView() {
   });
   const [editForm, setEditForm] = React.useState({
     Volunteer:'', Store:'', Item:'', Amount:'', Date: new Date().toISOString().split('T')[0],
-    splitFamilies: [], paidFamilies: []
+    splitFamilies: [], paidFamilies: [], customCounts: {}
   });
 
   const familyMembersMap = React.useMemo(() => buildFamilyMembers(signups, families), [signups, families]);
@@ -1371,6 +1371,7 @@ function ExpensesView() {
     if (!expense) return;
     const selectedSplit = parseAppliesFamilies(expense['Applies To Families']);
     const defaultSplit = selectedSplit.length > 0 ? selectedSplit : [...familyOptions];
+    const parsedCounts = parseAppliesCounts(expense['Applies To Counts']);
     const manualPaid = parseAppliesFamilies(expense['Paid By Families']);
     const defaultPaid = manualPaid.length > 0
       ? manualPaid
@@ -1387,6 +1388,7 @@ function ExpensesView() {
       Amount: expense.Amount === undefined || expense.Amount === null ? '' : String(expense.Amount),
       Date: expense.Date || new Date().toISOString().split('T')[0],
       splitFamilies: defaultSplit.filter(f => familyOptions.includes(f)),
+      customCounts: parsedCounts,
       paidFamilies: defaultPaid.filter(f => familyOptions.includes(f)),
     });
   }, [familyOptions, volunteerToFamily]);
@@ -1415,14 +1417,27 @@ function ExpensesView() {
     if (splitFamilies.length === 0) return;
     const paidFamilies = Array.from(new Set((editForm.paidFamilies || []).filter(f => familyOptions.includes(f))));
 
+    const customCounts = {};
+    splitFamilies.forEach(fam => {
+      const maxMembers = familyMembersMap[fam] || 0;
+      const val = editForm.customCounts?.[fam];
+      if (Number.isFinite(val) && val > 0 && val < maxMembers) {
+        customCounts[fam] = val;
+      }
+    });
+
+    const appliesToFamilies = splitFamilies.length === familyOptions.length && Object.keys(customCounts).length === 0
+      ? ''
+      : splitFamilies.join('|');
+
     const payload = {
       Volunteer: editForm.Volunteer,
       Store: editForm.Store,
       Item: editForm.Item,
       Amount: amount,
       Date: editForm.Date,
-      'Applies To Families': splitFamilies.length === familyOptions.length ? '' : splitFamilies.join('|'),
-      'Applies To Counts': '',
+      'Applies To Families': appliesToFamilies,
+      'Applies To Counts': Object.entries(customCounts).map(([fam, count]) => `${fam}::${count}`).join('|'),
       'Paid By Families': paidFamilies.join('|'),
     };
 
@@ -1433,6 +1448,7 @@ function ExpensesView() {
           e._row === editExpense._row ? { ...e, ...payload } : e
         );
       }
+      setExpensesData(prev => (prev || []).map(e => e._row === editExpense._row ? { ...e, ...payload } : e));
       await api.post({ action: 'updateExpense', row: editExpense._row, data: payload });
       setEditExpense(null);
       reload();
@@ -1566,7 +1582,7 @@ function ExpensesView() {
         <div style={{overflowX:'auto'}}>
           <table className="expense-table">
             <thead>
-              <tr><th>Volunteer</th><th>Store</th><th>Item</th><th>Applies To</th><th>Amount</th><th>Date</th></tr>
+              <tr><th>Volunteer</th><th>Store</th><th>Item</th><th>Split</th><th>Amount</th><th>Date</th><th></th></tr>
             </thead>
             <tbody>
               {(expenses||[]).map((e,i) => (
@@ -1579,12 +1595,13 @@ function ExpensesView() {
                     <div style={{fontSize:'.72rem',marginTop:2}}>paid by: {getPaidFamiliesLabel(e)}</div>
                     {e['Applies To Counts'] && (
                       <div style={{fontSize:'.72rem',marginTop:2}}>
-                        weighted: {String(e['Applies To Counts']).split('|').map(v => v.replace('::', ': ')).join(', ')}
+                        {String(e['Applies To Counts']).split('|').map(v => v.replace('::', ': ')).join(', ')}
                       </div>
                     )}
                   </td>
                   <td style={{fontWeight:700,color:'var(--green)'}}>${Number(e.Amount).toFixed(2)}</td>
                   <td style={{color:'var(--muted)'}}>{e.Date}</td>
+                  <td style={{color:'var(--muted)',fontSize:'.75rem',whiteSpace:'nowrap'}}>✏️</td>
                 </tr>
               ))}
               {(!expenses || expenses.length===0) && (
@@ -1740,19 +1757,12 @@ function ExpensesView() {
       )}
 
       {editExpense && (
-        <Modal title="🧾 Edit Expense" onClose={() => setEditExpense(null)}>
-          <div style={{fontSize:'.78rem',color:'var(--muted)',marginBottom:12}}>
-            Tap families below to set who paid this store expense and who is included in the split.
-          </div>
+        <Modal title="✏️ Edit Expense" onClose={() => setEditExpense(null)}>
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Volunteer</label>
               {volunteers && volunteers.length > 0 ? (
-                <select
-                  className="form-input"
-                  value={editForm.Volunteer}
-                  onChange={e => setEditForm({ ...editForm, Volunteer: e.target.value })}
-                >
+                <select className="form-input" value={editForm.Volunteer} onChange={e => setEditForm({ ...editForm, Volunteer: e.target.value })}>
                   <option value="">Select volunteer…</option>
                   {volunteers.map(v => (
                     <option key={v.Name} value={v.Name}>{v.Name}{v.Family ? ` (${v.Family})` : ''}</option>
@@ -1771,14 +1781,24 @@ function ExpensesView() {
             <label className="form-label">Item(s)</label>
             <input className="form-input" value={editForm.Item} onChange={e => setEditForm({ ...editForm, Item: e.target.value })} />
           </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Amount ($)</label>
+              <input className="form-input" type="number" step="0.01" min="0" value={editForm.Amount}
+                onChange={e => setEditForm({ ...editForm, Amount: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Date</label>
+              <input className="form-input" type="date" value={editForm.Date} onChange={e => setEditForm({ ...editForm, Date: e.target.value })} />
+            </div>
+          </div>
 
           <div className="form-group">
-            <label className="form-label">Paid By Family (manual claim)</label>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,padding:'10px',border:'1px solid var(--border)',borderRadius:8,maxHeight:160,overflowY:'auto'}}>
+            <label className="form-label">Who Paid?</label>
+            <div style={{display:'flex',flexWrap:'wrap',gap:8,padding:'8px 10px',border:'1px solid var(--border)',borderRadius:8}}>
               {familyOptions.map(family => (
-                <label key={`paid-${family}`} style={{display:'flex',alignItems:'center',gap:6,fontSize:'.82rem',cursor:'pointer'}}>
-                  <input
-                    type="checkbox"
+                <label key={`paid-${family}`} style={{display:'flex',alignItems:'center',gap:5,fontSize:'.82rem',cursor:'pointer',padding:'3px 6px',borderRadius:6,background:(editForm.paidFamilies||[]).includes(family)?'#dcfce7':'transparent'}}>
+                  <input type="checkbox"
                     checked={(editForm.paidFamilies || []).includes(family)}
                     onChange={e => toggleFamilyValue('paidFamilies', family, e.target.checked)}
                   />
@@ -1786,54 +1806,112 @@ function ExpensesView() {
                 </label>
               ))}
             </div>
-            <div style={{fontSize:'.74rem',color:'var(--muted)',marginTop:6}}>
-              Leave empty to use volunteer-to-family mapping automatically.
-            </div>
+            <div style={{fontSize:'.72rem',color:'var(--muted)',marginTop:4}}>Leave empty to auto-map from volunteer.</div>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Split This Expense Across Families</label>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,padding:'10px',border:'1px solid var(--border)',borderRadius:8,maxHeight:170,overflowY:'auto'}}>
-              {familyOptions.map(family => (
-                <label key={`split-${family}`} style={{display:'flex',alignItems:'center',gap:6,fontSize:'.82rem',cursor:'pointer'}}>
-                  <input
-                    type="checkbox"
-                    checked={(editForm.splitFamilies || []).includes(family)}
-                    onChange={e => toggleFamilyValue('splitFamilies', family, e.target.checked)}
-                  />
-                  {family}
-                </label>
-              ))}
+            <label className="form-label">Cost Split by Family</label>
+            <div style={{fontSize:'.74rem',color:'var(--muted)',marginBottom:8}}>
+              Uncheck to exclude a family. Adjust "Sharing" count to split with fewer members.
             </div>
-            {(editForm.splitFamilies || []).length === 0 && (
-              <div style={{fontSize:'.74rem',color:'#b45309',marginTop:6}}>Select at least one family for split.</div>
-            )}
+            {(() => {
+              const amount = parseFloat(editForm.Amount) || 0;
+              const splitFams = editForm.splitFamilies || [];
+              const totalSharing = splitFams.reduce((sum, fam) => {
+                const max = familyMembersMap[fam] || 0;
+                const custom = editForm.customCounts?.[fam];
+                return sum + (Number.isFinite(custom) ? Math.min(custom, max) : max);
+              }, 0);
+              const perPerson = totalSharing > 0 ? amount / totalSharing : 0;
+              return (
+                <div>
+                  <div style={{display:'flex',gap:20,marginBottom:10,padding:'10px 14px',background:'#f0fdf4',borderRadius:8,border:'1px solid #bbf7d0',flexWrap:'wrap'}}>
+                    <div>
+                      <span style={{fontWeight:800,color:'var(--green)',fontSize:'1.05rem'}}>{totalSharing}</span>
+                      <span style={{fontSize:'.72rem',color:'var(--muted)',marginLeft:5}}>members sharing</span>
+                    </div>
+                    <div>
+                      <span style={{fontWeight:800,color:'var(--green)',fontSize:'1.05rem'}}>${perPerson.toFixed(2)}</span>
+                      <span style={{fontSize:'.72rem',color:'var(--muted)',marginLeft:5}}>per person</span>
+                    </div>
+                    <div>
+                      <span style={{fontWeight:800,color:'var(--green)',fontSize:'1.05rem'}}>${amount.toFixed(2)}</span>
+                      <span style={{fontSize:'.72rem',color:'var(--muted)',marginLeft:5}}>total</span>
+                    </div>
+                  </div>
+                  <div style={{border:'1px solid var(--border)',borderRadius:8,overflow:'hidden'}}>
+                    <div style={{display:'grid',gridTemplateColumns:'28px 1fr 50px 72px 74px',padding:'6px 10px',background:'var(--bg)',fontSize:'.7rem',fontWeight:700,color:'var(--muted)',borderBottom:'1px solid var(--border)'}}>
+                      <div></div>
+                      <div>Family</div>
+                      <div style={{textAlign:'center'}}>Total</div>
+                      <div style={{textAlign:'center'}}>Sharing</div>
+                      <div style={{textAlign:'right'}}>Family $</div>
+                    </div>
+                    {familyOptions.map((family, idx) => {
+                      const included = splitFams.includes(family);
+                      const maxMembers = familyMembersMap[family] || 0;
+                      const custom = editForm.customCounts?.[family];
+                      const countVal = included ? (Number.isFinite(custom) ? custom : maxMembers) : 0;
+                      const familyCost = included ? countVal * perPerson : 0;
+                      const isLast = idx === familyOptions.length - 1;
+                      return (
+                        <div key={family} style={{
+                          display:'grid',
+                          gridTemplateColumns:'28px 1fr 50px 72px 74px',
+                          alignItems:'center',
+                          padding:'9px 10px',
+                          borderBottom: isLast ? 'none' : '1px solid var(--border)',
+                          background: included ? 'var(--card)' : '#f9fafb',
+                          opacity: included ? 1 : 0.5,
+                          transition:'opacity .15s',
+                        }}>
+                          <input type="checkbox" checked={included} style={{cursor:'pointer'}}
+                            onChange={e => {
+                              const on = e.target.checked;
+                              const nextFams = on ? [...splitFams, family] : splitFams.filter(f => f !== family);
+                              const nextCounts = { ...(editForm.customCounts || {}) };
+                              if (!on) delete nextCounts[family];
+                              setEditForm({ ...editForm, splitFamilies: nextFams, customCounts: nextCounts });
+                            }}
+                          />
+                          <div style={{fontWeight:600,fontSize:'.85rem'}}>{family}</div>
+                          <div style={{textAlign:'center',fontSize:'.8rem',color:'var(--muted)'}}>{maxMembers}</div>
+                          <div style={{textAlign:'center'}}>
+                            {included ? (
+                              <input
+                                type="number" min="1" max={String(maxMembers)} value={countVal}
+                                onChange={e => {
+                                  const n = parseInt(e.target.value);
+                                  const bounded = Math.max(1, Math.min(maxMembers || 1, isNaN(n) ? 1 : n));
+                                  setEditForm({ ...editForm, customCounts: { ...(editForm.customCounts || {}), [family]: bounded } });
+                                }}
+                                style={{width:50,padding:'3px 5px',border:'1.5px solid var(--border)',borderRadius:6,textAlign:'center',fontSize:'.82rem',outline:'none'}}
+                                onFocus={e => { e.target.style.borderColor='var(--green2)'; }}
+                                onBlur={e => { e.target.style.borderColor='var(--border)'; }}
+                              />
+                            ) : (
+                              <span style={{fontSize:'.8rem',color:'var(--muted)'}}>—</span>
+                            )}
+                          </div>
+                          <div style={{textAlign:'right',fontWeight:700,fontSize:'.85rem',color:included?'var(--green)':'var(--muted)'}}>
+                            {included ? `$${familyCost.toFixed(2)}` : '—'}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {splitFams.length === 0 && (
+                    <div style={{fontSize:'.74rem',color:'#b45309',marginTop:6}}>Select at least one family for the split.</div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
-          <div className="form-row">
-            <div className="form-group">
-              <label className="form-label">Amount ($)</label>
-              <input
-                className="form-input"
-                type="number"
-                step="0.01"
-                min="0"
-                value={editForm.Amount}
-                onChange={e => setEditForm({ ...editForm, Amount: e.target.value })}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Date</label>
-              <input className="form-input" type="date" value={editForm.Date} onChange={e => setEditForm({ ...editForm, Date: e.target.value })} />
-            </div>
-          </div>
           <div className="modal-actions">
             <button className="btn btn-outline" onClick={() => setEditExpense(null)} disabled={savingEdit}>Cancel</button>
-            <button
-              className="btn btn-primary"
-              onClick={handleSaveEdit}
-              disabled={savingEdit || (editForm.splitFamilies || []).length===0}
-            >
+            <button className="btn btn-primary" onClick={handleSaveEdit}
+              disabled={savingEdit || (editForm.splitFamilies || []).length === 0}>
               {savingEdit ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
