@@ -41,6 +41,7 @@ function doGet(e) {
       case 'getFamilies':    result = getFamilies();    break;
       case 'getExpenses':    result = getExpenses();    break;
       case 'getSignups':     result = getSignups();     break;
+      case 'getVolunteerDues': result = getVolunteerDues(); break;
       case 'getSummary':     result = getSummary();     break;
       default:               result = { error: 'Unknown action: ' + action };
     }
@@ -189,6 +190,96 @@ function getSummary() {
     familyCosts,
     shoppingProgress: { total: totalItems, purchased: purchasedItems },
   };
+}
+
+// Calculate per-family assigned expenses, payments made by volunteers,
+// and map volunteers to their family with the final due amount.
+function getVolunteerDues() {
+  const families = sheetToObjects(SHEETS.FAMILIES);
+  const volunteers = sheetToObjects(SHEETS.VOLUNTEERS);
+  const expenses = sheetToObjects(SHEETS.EXPENSES);
+
+  // Build family maps
+  const familyMembers = {};
+  const familyTotals = {};
+  families.forEach(f => {
+    const name = f['Family Name'] || 'Unknown';
+    const members = parseInt(f['Members']) || 0;
+    familyMembers[name] = members;
+    familyTotals[name] = 0;
+  });
+
+  const totalMembers = Object.values(familyMembers).reduce((s, n) => s + n, 0);
+
+  // Helper: normalize amount
+  const amt = a => parseFloat(a) || 0;
+
+  // Allocate each expense to families
+  expenses.forEach(e => {
+    const amount = amt(e['Amount']);
+    const appliesRaw = e['Applies To Families'] || '';
+    const applies = appliesRaw.split(',').map(s => String(s).trim()).filter(Boolean);
+
+    if (applies.length > 0) {
+      const share = amount / applies.length;
+      applies.forEach(fName => {
+        if (!(fName in familyTotals)) familyTotals[fName] = 0;
+        familyTotals[fName] += share;
+      });
+    } else {
+      // Distribute proportionally by family members (fallback: equal split)
+      if (totalMembers > 0) {
+        Object.keys(familyMembers).forEach(fName => {
+          const members = familyMembers[fName] || 0;
+          const share = members > 0 ? amount * (members / totalMembers) : 0;
+          familyTotals[fName] = (familyTotals[fName] || 0) + share;
+        });
+      } else {
+        const famCount = Object.keys(familyTotals).length || 1;
+        const share = amount / famCount;
+        Object.keys(familyTotals).forEach(fName => { familyTotals[fName] += share; });
+      }
+    }
+  });
+
+  // Map volunteers to family and compute payments
+  const volunteerToFamily = {};
+  volunteers.forEach(v => { volunteerToFamily[String(v['Name'])] = v['Family'] || 'Unknown'; });
+
+  const familyPayments = {};
+  const paidByVolunteer = {};
+  expenses.forEach(e => {
+    const amount = amt(e['Amount']);
+    const vName = String(e['Volunteer'] || '').trim();
+    if (vName) {
+      paidByVolunteer[vName] = (paidByVolunteer[vName] || 0) + amount;
+      const fam = volunteerToFamily[vName];
+      if (fam) familyPayments[fam] = (familyPayments[fam] || 0) + amount;
+    }
+  });
+
+  // Build result: for each volunteer include family totals and final due
+  const results = volunteers.map(v => {
+    const name = v['Name'] || '';
+    const fam = v['Family'] || 'Unknown';
+    const members = parseInt(families.find(ff => ff['Family Name'] === fam)?.['Members'] || 0) || 0;
+    const familyAssigned = Math.round((familyTotals[fam] || 0) * 100) / 100;
+    const familyPaid = Math.round((familyPayments[fam] || 0) * 100) / 100;
+    const volunteerPaid = Math.round((paidByVolunteer[name] || 0) * 100) / 100;
+    const finalDue = Math.round((familyAssigned - familyPaid) * 100) / 100;
+
+    return {
+      volunteer: name,
+      family: fam,
+      members,
+      familyAssigned,
+      familyPaid,
+      volunteerPaid,
+      finalDue,
+    };
+  });
+
+  return { families: familyTotals, volunteers: results };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
