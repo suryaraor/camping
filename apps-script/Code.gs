@@ -62,6 +62,7 @@ function doPost(e) {
     switch (action) {
       case 'addSignup':          result = addSignup(body.data);                         break;
       case 'addExpense':         result = addExpense(body.data);                        break;
+      case 'updateExpense':      result = updateExpense(body.row, body.data);           break;
       case 'addShoppingItem':    result = addShoppingItem(body.data);                  break;
       case 'updateStatus':       result = updateShoppingStatus(body.id, body.status);        break;
       case 'updateVolunteer':    result = updateShoppingVolunteer(body.id, body.volunteer); break;
@@ -293,13 +294,30 @@ function addSignup(data) {
 }
 
 function addExpense(data) {
-  const headers = ['Volunteer', 'Store', 'Item', 'Amount', 'Receipt', 'Date', 'Applies To Families', 'Applies To Counts'];
+  const headers = ['Volunteer', 'Store', 'Item', 'Amount', 'Receipt', 'Date', 'Applies To Families', 'Applies To Counts', 'Paid By Families'];
   ensureColumnExists(SHEETS.EXPENSES, 'Applies To Families');
   ensureColumnExists(SHEETS.EXPENSES, 'Applies To Counts');
+  ensureColumnExists(SHEETS.EXPENSES, 'Paid By Families');
   data['Date'] = data['Date'] || new Date().toISOString().split('T')[0];
   data['Applies To Families'] = data['Applies To Families'] || '';
   data['Applies To Counts'] = data['Applies To Counts'] || '';
+  data['Paid By Families'] = data['Paid By Families'] || '';
   return appendRow(SHEETS.EXPENSES, headers, data);
+}
+
+function updateExpense(rowNum, data) {
+  const row = parseInt(rowNum, 10);
+  if (!Number.isFinite(row) || row < 2) throw new Error('Invalid expense row: ' + rowNum);
+
+  ensureColumnExists(SHEETS.EXPENSES, 'Applies To Families');
+  ensureColumnExists(SHEETS.EXPENSES, 'Applies To Counts');
+  ensureColumnExists(SHEETS.EXPENSES, 'Paid By Families');
+
+  const fields = ['Volunteer', 'Store', 'Item', 'Amount', 'Date', 'Applies To Families', 'Applies To Counts', 'Paid By Families'];
+  fields.forEach(field => {
+    if (data[field] !== undefined) updateCell(SHEETS.EXPENSES, row, field, data[field]);
+  });
+  return { updated: true, row };
 }
 
 function ensureColumnExists(sheetName, colName) {
@@ -376,7 +394,7 @@ function setupSheetHeaders() {
     'ShoppingList': ['ID', 'Meal', 'Category', 'Item', 'Quantity', 'Store', 'Volunteer', 'Status', 'Cost'],
     'Volunteers':   ['Name', 'Family', 'Assigned Store', 'Phone'],
     'Families':     ['Family Name', 'Members', 'Contact', 'Email'],
-    'Expenses':     ['Volunteer', 'Store', 'Item', 'Amount', 'Receipt', 'Date', 'Applies To Families', 'Applies To Counts'],
+    'Expenses':     ['Volunteer', 'Store', 'Item', 'Amount', 'Receipt', 'Date', 'Applies To Families', 'Applies To Counts', 'Paid By Families'],
     'Signups':      ['Name', 'Family', 'Members', 'Nights', 'Email', 'Dietary Notes', 'Signed Up At'],
   };
 
